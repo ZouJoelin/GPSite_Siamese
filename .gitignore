@@ -3,5 +3,7 @@ __pycache__
 
 _playground/
 
+tools/
+
 datasets/
 data/
