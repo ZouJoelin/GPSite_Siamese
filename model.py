@@ -150,12 +150,12 @@ class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predicto
 
         wt_embedding = self.KeepShapeMLP(wt_embedding)
         mut_embedding = self.KeepShapeMLP(mut_embedding)
+        assert (wt_graph.batch == mut_graph.batch).all()
         d_embedding = mut_embedding - wt_embedding
         # shape: [num_residue, hidden_dim]
 
         d_embedding = self.projecter1D(d_embedding)
         # shape: [num_residue, 1]
-        assert (wt_graph.batch == mut_graph.batch).all()
         output = scatter_mean(d_embedding, wt_graph.batch, dim=0)
         
         return output.squeeze()

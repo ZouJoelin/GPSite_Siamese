@@ -1,4 +1,6 @@
 import numpy as np
+import torch
+
 from Bio import pairwise2
 
 
@@ -29,17 +31,52 @@ def get_clean_res_list(res_list, verbose=False, ensure_ca_exist=False, bfactor_c
     return clean_res_list
 
 
-def match_wt2mut(wt_seq_file, mut_seq_file):
+def match_seq_wt2mut(wt_seq_file, mut_seq_file):
+    print(f"verify sequence whether match: ")
     with open(wt_seq_file) as f:
         wt_seq = f.readline()
-
     with open(mut_seq_file) as f:
         mut_seq = f.readline()
-        
+    print(f"wt: {len(wt_seq)} - mut: {len(mut_seq)}")
     for i, (wt, mut) in enumerate(zip(wt_seq, mut_seq)):
         if wt != mut:
             print(f"{i+1}: {wt} -> {mut}")
-    
+
+def match_coord_wt2mut(wt_coord_file, mut_coord_file):
+    print(f"verify coordinate whether match: ")
+    wt_coord = torch.load(wt_coord_file)
+    mut_coord = torch.load(mut_coord_file)
+    print(f"wt: {wt_coord.shape} - mut: {mut_coord.shape}")
+
+def match_ProtTrans_wt2mut(wt_ProtTrans_file, mut_ProtTrans_file):
+    print(f"verify ProtTrans feature whether match: ")
+    wt_ProtTrans = torch.load(wt_ProtTrans_file)
+    mut_ProtTrans = torch.load(mut_ProtTrans_file)
+    print(f"wt: {wt_ProtTrans.shape} - mut: {mut_ProtTrans.shape}")
+
+def match_DSSP_wt2mut(wt_DSSP_file, mut_DSSP_file):
+    print(f"verify DSSP feature whether match: ")
+    wt_DSSP = torch.load(wt_DSSP_file)
+    mut_DSSP = torch.load(mut_DSSP_file)
+    print(f"wt: {wt_DSSP.shape} - mut: {mut_DSSP.shape}")
+
+def match_wt2mut(wt_name, mut_name, feature_path):
+    wt_seq_file = f"{feature_path}/seq/{wt_name}.txt"
+    mut_seq_file = f"{feature_path}/seq/{mut_name}.txt"
+    match_seq_wt2mut(wt_seq_file, mut_seq_file)
+
+    wt_coord_file = f"{feature_path}/coord/{wt_name}.pt"
+    mut_coord_file = f"{feature_path}/coord/{mut_name}.pt"
+    match_coord_wt2mut(wt_coord_file, mut_coord_file)
+
+    wt_ProtTrans_file = f"{feature_path}/ProtTrans/{wt_name}.pt"
+    mut_ProtTrans_file = f"{feature_path}/ProtTrans/{mut_name}.pt"
+    match_ProtTrans_wt2mut(wt_ProtTrans_file, mut_ProtTrans_file)
+
+    wt_DSSP_file = f"{feature_path}/DSSP/{wt_name}.pt"
+    mut_DSSP_file = f"{feature_path}/DSSP/{mut_name}.pt"
+    match_DSSP_wt2mut(wt_DSSP_file, mut_DSSP_file)
+
 
 def process_dssp(dssp_file):
     """ extract Second-Structure(SS) and relative-solvent-accessibility(RSA) from .dssp file.
