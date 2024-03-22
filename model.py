@@ -312,7 +312,10 @@ def _quaternions(R):
 
 
 
+def get_model():
 
+    model = SiameseGPSite()
+    return model
 
 
 
