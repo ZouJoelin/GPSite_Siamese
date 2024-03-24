@@ -1,13 +1,16 @@
+import os
+import subprocess
+import random
+
 import numpy as np
 import torch
-
+from torchmetrics.functional import mean_squared_error, mean_absolute_error, spearman_corrcoef
 from Bio import pairwise2
 
 
 three_to_one = {'ALA': 'A', 'CYS': 'C', 'ASP': 'D', 'GLU': 'E', 'PHE': 'F', 'GLY': 'G', 'HIS': 'H', 
                 'ILE': 'I', 'LYS': 'K', 'LEU': 'L', 'MET': 'M', 'ASN': 'N', 'PRO': 'P', 'GLN': 'Q', 
                 'ARG': 'R', 'SER': 'S', 'THR': 'T', 'VAL': 'V', 'TRP': 'W', 'TYR': 'Y'}
-
 
 def get_clean_res_list(res_list, verbose=False, ensure_ca_exist=False, bfactor_cutoff=None):
     """ clean res_list """
@@ -151,6 +154,55 @@ def match_dssp(seq, dssp, ref_seq):
         matched_dssp.append(new_dssp[i])
 
     return matched_dssp
+
+
+def Seed_everything(seed=42):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+
+
+def Write_log(logFile, text: str, isPrint=True):
+    if isPrint:
+        print(text)
+    logFile.write(text)
+    logFile.write('\n')
+
+
+def get_GPUs_used_memory():
+    command = "nvidia-smi --query-gpu=memory.used --format=csv"
+    output = subprocess.check_output(command.split()).decode("utf-8").strip().split("\n")[1:]
+    gpu_memory = [int(line.split()[0]) for line in output]
+    return gpu_memory
+
+
+def Metric(pred: torch.tensor, target: torch.tensor):
+
+    mse = mean_squared_error(pred, target)
+    mae = mean_absolute_error(pred, target)
+    abs_err_std = torch.std(torch.abs(pred - target))
+    spearman_cc = spearman_corrcoef(pred, target)
+    
+    return mse, mae, abs_err_std, spearman_cc
+    
+
+def metric2string(mse, mae, abs_err_std, spearman_cc, pre_fix=""):
+    if len(pre_fix) > 0:
+        pre_fix += '_'
+    metric_string = (f"{pre_fix}mse: {mse:.6f}, "
+                     f"{pre_fix}mae: {mae:.6f}, "
+                     f"{pre_fix}abs_err_std: {abs_err_std:.6f}, "
+                     f"{pre_fix}scc: {spearman_cc:.6f};" 
+                     )
+
+    return metric_string
+
+
 
 
 

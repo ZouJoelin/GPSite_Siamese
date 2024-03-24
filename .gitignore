@@ -2,8 +2,11 @@ __pycache__
 .vscode
 
 _playground/
+demo.*
 
 tools/
 
 datasets/
 data/
+
+output/

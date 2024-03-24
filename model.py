@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from torch_scatter import scatter_mean
+from torch_scatter import scatter_mean, scatter_sum
 from torch_geometric.nn import TransformerConv
 from data import *
 
@@ -156,8 +156,9 @@ class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predicto
 
         d_embedding = self.projecter1D(d_embedding)
         # shape: [num_residue, 1]
-        output = scatter_mean(d_embedding, wt_graph.batch, dim=0)
-        
+        # output = scatter_mean(d_embedding, wt_graph.batch, dim=0)
+        output = scatter_sum(d_embedding, wt_graph.batch, dim=0)  # sum more reasonable
+
         return output.squeeze()
 
 

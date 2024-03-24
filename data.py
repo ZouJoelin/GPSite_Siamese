@@ -7,12 +7,16 @@ import torch_geometric
 
 
 class SiameseProteinGraphDataset(data.Dataset):
-    def __init__(self, data: pd.DataFrame, feature_path="./data/", radius=15) -> None:
+    def __init__(self, data: pd.DataFrame, feature_path="./data/", graph_mode="radius", radius=15, top_k=30) -> None:
         super(SiameseProteinGraphDataset, self).__init__()
 
         self.data = data
         self.feature_path = feature_path
-        self.radius = radius
+        self.graph_mode = graph_mode
+        if self.graph_mode == "radius":
+            self.radius = radius
+        elif self.graph_mode == "knn":
+            self.top_k = top_k
         self.letter_to_num = {'C': 4, 'D': 3, 'S': 15, 'Q': 5, 'K': 11, 'I': 9,
                 'P': 14, 'T': 16, 'F': 13, 'A': 0, 'G': 7, 'H': 8,
                 'E': 6, 'L': 10, 'R': 1, 'W': 17, 'V': 19, 
@@ -43,18 +47,22 @@ class SiameseProteinGraphDataset(data.Dataset):
 
             pre_computed_node_feature = torch.cat([ProtTrans_feature, DSSP_feature], dim=-1)
             X_ca = coord[:, 1]
-            edge_index = torch_geometric.nn.radius_graph(X_ca, r=self.radius, loop=True, max_num_neighbors=1000, num_workers=4)
-
+            # radius_graph -> knn_graph: less memory requirement
+            if self.graph_mode == "radius":
+                edge_index = torch_geometric.nn.radius_graph(X_ca, r=self.radius, loop=True, max_num_neighbors=1000, num_workers=4)
+            elif self.graph_mode == "knn":
+                edge_index = torch_geometric.nn.knn_graph(X_ca, k=self.top_k)  
+        
         graph_data = torch_geometric.data.Data(name=name, seq=seq, coord=coord, node_feat=pre_computed_node_feature, edge_index=edge_index)
         return graph_data
 
 
-def get_data():
-    dataset_train = torch.load("./data/dataset_train.pt")
-    dataset_test = torch.load("./data/dataset_test.pt")
+def get_data(data_path = "./data") -> [pd.DataFrame, pd.DataFrame]:
+    dataset_train = torch.load(f"{data_path}/dataset_train.pt")
+    dataset_test = torch.load(f"{data_path}/dataset_test.pt")
 
-    dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path="./data/", radius=15)
-    dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path="./data/", radius=15)
+    # dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path="./data/", radius=15)
+    # dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path="./data/", radius=15)
 
     return dataset_train, dataset_test
 
