@@ -1,7 +1,8 @@
 # import everything...
 import os
+import sys
+import glob
 import argparse
-from datetime import datetime
 from tqdm import tqdm
 
 import pickle
@@ -24,9 +25,10 @@ parser.add_argument("--data_path", type=str, default="./data/",
 parser.add_argument("--output_path", type=str, default="./output/",
                     help="log your training process.")
 
-parser.add_argument("--debug", action='store_true', default=False)
 parser.add_argument("--train", action='store_true', default=False)
 parser.add_argument("--test", action='store_true', default=False)
+parser.add_argument("--debug", action='store_true', default=False)
+parser.add_argument("--run_id", type=str, required=True, default=None)
 
 parser.add_argument("--gpu_id", type=int, default=0,
                     help="select GPU to train on.")
@@ -39,30 +41,55 @@ args = parser.parse_args()
 # running configuration
 data_path = args.data_path
 output_path = args.output_path
+run_id = args.run_id
 gpu_id = args.gpu_id
 num_workers = args.num_workers
 use_parallel = False
-graph_size_limit = 400000
+seed = 42
 
 # hyper-parameter
-seed = 42
-train_samples = 5000
-batch_size_train = 8
-batch_size_valid = batch_size_test = 4
-lr = 1e-4
-beta12 = (0.9, 0.999)
-folds = 5 #3
-epochs_num = 200 #5
-graph_mode = "knn"
-top_k = 30
-patience = 10
+hyper_para = {
+    'train_samples': 5000,
+    'batch_size_train': 8,
+    'batch_size_test': 4,
+    'lr': 1e-3,
+    'beta12': (0.9, 0.999),
+    'folds_num': 5,
+    'epochs_num': 200,
+    'graph_size_limit': 400000,
+    'graph_mode': "knn",
+    'top_k': 30,
+    'patience': 10,
+}
 
+hyper_para_debug = {
+    'train_samples': 8,
+    'batch_size_train': 2,
+    'batch_size_test': 2,
+    'lr': 1e-3,
+    'beta12': (0.9, 0.999),
+    'folds_num': 3,
+    'epochs_num': 3,
+    'graph_size_limit': 100000,
+    'graph_mode': "knn",
+    'top_k': 30,
+    'patience': 5,
+}
 if args.debug:
-    graph_size_limit = 100000
-    train_samples = 10
-    batch_size = 2
-    folds = 3
-    epochs_num = 5
+    hyper_para = hyper_para_debug
+
+train_samples = hyper_para["train_samples"]
+batch_size_train = hyper_para["batch_size_train"]
+batch_size_valid = batch_size_test = hyper_para["batch_size_test"]
+lr = hyper_para["lr"]
+beta12 = hyper_para["beta12"]
+folds_num = hyper_para["folds_num"]
+epochs_num = hyper_para["epochs_num"]
+graph_size_limit = hyper_para["graph_size_limit"]
+graph_mode = hyper_para["graph_mode"]
+top_k = hyper_para["top_k"]
+patience = hyper_para["patience"]
+
 
 # fix random seed for training
 Seed_everything(seed)
@@ -71,8 +98,7 @@ Seed_everything(seed)
 ############### Finished preparing, start running ###############
 
 # record output
-timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
-output_root = f"{output_path}/{timestamp}"
+output_root = f"{output_path}/{run_id}"
 if args.debug:
     output_root += "_debug"
 os.makedirs(output_root, exist_ok=True)
@@ -102,8 +128,8 @@ if args.train:
     os.system(f"cp *.py {output_src_path}/")
 
     # save best epoch's model parameters for each fold
-    output_model_path = f"{output_root}/models/"
-    os.makedirs(output_model_path, exist_ok=True)
+    output_models_path = f"{output_root}/models/"
+    os.makedirs(output_models_path, exist_ok=True)
 
     # reocrd loss_history in training
     output_loss_path = f"{output_root}/loss/"
@@ -114,15 +140,15 @@ if args.train:
     os.makedirs(output_metric_path, exist_ok=True)
 
     log = open(f"{output_root}/train_valid.log", 'w', buffering=1)
-    current_time = datetime.now().strftime("%m-%d %H:%M")
-    Write_log(log, f"\n==================== Train & Validate with {folds}-Fold @{current_time} ====================")
+    Write_log(log, ' '.join(sys.argv))
+    Write_log(log, f"{hyper_para}\n")
+    Write_log(log, f"\n==================== Train & Validate with {folds_num}-Fold @{get_current_time()} ====================")
 
 
     best_valid_metric = {"MSE": [], "MAE": [], "STD": [], "SCC": []}
-    kf = KFold(n_splits=folds, shuffle=True, random_state=seed)
+    kf = KFold(n_splits=folds_num, shuffle=True, random_state=seed)
     for fold, (index_train, index_valid) in enumerate(kf.split(dataset)):
-        current_time = datetime.now().strftime("%m-%d %H:%M")
-        Write_log(log, f"\n========== Fold {fold} @{current_time} ==========")
+        Write_log(log, f"\n========== Fold {fold} @{get_current_time()} ==========")
 
         # split out dataset_train
         dataset_train = dataset.iloc[index_train].reset_index(drop=True)
@@ -187,7 +213,7 @@ if args.train:
                 # skip too large protein, in case CUDA out of memory
                 current_graph_size = wt_graph.edge_index.shape[1]
                 if current_graph_size > graph_size_limit:
-                    Write_log(log, (f"[Warning]: protein({wt_graph.name}) graph size({current_graph_size}) exceed pre-set limit {graph_size_limit} "
+                    Write_log(log, (f"[Warning] protein({wt_graph.name}) graph size({current_graph_size}) exceed pre-set limit {graph_size_limit} "
                                     f"(GPU{gpu_id}_memory_used_upmost: {memory_used_upmost} graph_size_seen_upmost: {graph_size_seen_upmost}"
                                     ))
                     continue
@@ -229,8 +255,8 @@ if args.train:
                     pred_list += pred.tolist()
                     y_list += y.tolist()
 
-            assert (len(pred_list) == len(y_list))
-            valid_mse, valid_mae, valid_std, valid_scc = Metric(torch.tensor(np.array(pred_list)), torch.tensor(np.array(y_list)))
+                assert (len(pred_list) == len(y_list))
+                valid_mse, valid_mae, valid_std, valid_scc = Metric(torch.tensor(np.array(pred_list)), torch.tensor(np.array(y_list)))
             metric_history["valid"]["MSE"].append(valid_mse.item())
             metric_history["valid"]["MAE"].append(valid_mae.item())
             metric_history["valid"]["STD"].append(valid_std.item())
@@ -240,7 +266,7 @@ if args.train:
             # record epoch progress
             if valid_mse.item() < best_valid_mse:
                 # save current epoch model as best model of this fold.
-                torch.save(model.state_dict(), f"{output_model_path}/model_fold{fold}.ckpt")
+                torch.save(model.state_dict(), f"{output_models_path}/modeling_fold{fold}.ckpt")
                 best_valid_mse = valid_mse.item()
                 best_valid_mae = valid_mae.item()
                 best_valid_std = valid_std.item()
@@ -264,6 +290,7 @@ if args.train:
                 break
         
         # best model of this fold
+        os.system(f"mv {output_models_path}/modeling_fold{fold}.ckpt {output_models_path}/model_fold{fold}.ckpt")
         best_valid_metric["MSE"].append(best_valid_mse)
         best_valid_metric["MAE"].append(best_valid_mae)
         best_valid_metric["STD"].append(best_valid_std)
@@ -285,8 +312,7 @@ if args.train:
         del dataloader_train, dataloader_valid
         torch.cuda.empty_cache()
 
-    current_time = datetime.now().strftime("%m-%d %H:%M")
-    Write_log(log, f"\n==================== Finish {fold}-Fold training & validating @{current_time} ====================")
+    Write_log(log, f"\n==================== Finish {folds_num}-Fold training & validating @{get_current_time()} ====================")
 
     # average on cross_validation metric
     with open(f"{output_metric_path}/CV_metrics.pkl", "wb") as cv_metrics_file:
@@ -303,38 +329,76 @@ if args.train:
     log.close()
 
 
+# test
+# final independent evaluation on each fold's model with dataset_test
+if args.test:
+
+    log = open(f"{output_root}/test.log", 'w', buffering=1)
+    Write_log(log, ' '.join(sys.argv))
+    Write_log(log, f"{hyper_para}\n")
+    Write_log(log, f"\n==================== Independent Test @{get_current_time()} ====================")
+
+    # get dataset
+    if args.debug:
+        index_test = list(range(batch_size_test*2))
+        dataset_test = dataset_test.iloc[index_test].reset_index(drop=True)
+    dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path=data_path, graph_mode=graph_mode, top_k=top_k)
+    dataloader_test = DataLoader(dataset_test, batch_size=batch_size_test, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2)
+    Write_log(log, f"dataset_test: {len(dataset_test)} dataloader_test: {len(dataloader_test)}")
+ 
+    # get models
+    output_models_path = f"{output_root}/models/"
+    models_filepath_list = glob.glob(f"{output_models_path}/model_fold*.ckpt")
+    finished_models_num = len(models_filepath_list)
+
+    # whether finish k-fold
+    if finished_models_num == 0:
+        Write_log(log, f"[Error] trained model DON'T exists.")
+        exit(1)
+    if finished_models_num != folds_num:
+        Write_log(log, f"[Warning] Only {finished_models_num} fold(s) finished, {folds_num} folds in total.")
+
+    model_list = []
+    for model_filepath in models_filepath_list:
+        model = get_model().to(device)
+        checkpoint = torch.load(model_filepath, device)
+        model.load_state_dict(checkpoint)
+        model.eval()
+        model_list.append(model)
+    Write_log(log, f"finished models count: {len(model_list)}")
 
 
-# # test
-# # final independent evaluation on each fold's model with dataset_test
-# if args.test:
+    test_pred_y = {"pred": [], "y": []}
+    test_metrics = {}
+    with torch.no_grad():
+        for batch, (wt_graph, mut_graph, y) in tqdm(enumerate(dataloader_test), total=len(dataloader_test)):
+            wt_graph, mut_graph, y = wt_graph.to(device), mut_graph.to(device), y.to(device)
+            pred = [model(wt_graph, mut_graph) for model in model_list]
+            pred = torch.vstack(pred).mean(dim=0)
+
+            test_pred_y["pred"] += pred.tolist()
+            test_pred_y["y"] += y.tolist()
+
+        assert (len(test_pred_y["pred"]) == len(test_pred_y["y"]))
+        test_mse, test_mae, test_std, test_scc = Metric(torch.tensor(np.array(test_pred_y["pred"])), torch.tensor(np.array(test_pred_y["y"])))
+    test_metrics["MSE"] = test_mse.item()
+    test_metrics["MAE"] = test_mae.item()
+    test_metrics["STD"] = test_std.item()
+    test_metrics["SCC"] = test_scc.item()
 
 
-# models = [model[fold] for fold in folds]
+    # save pred-y pairs
+    with open(f"{output_root}/test_pred_y.pkl", "wb") as pred_y_file:
+        pickle.dump(test_pred_y, pred_y_file)
 
-# metric_test = 0
-# y_list = []
-# pred_list = []
+    # save test metrics
+    with open(f"{output_root}/test_metrics.pkl", "wb") as test_metrics_file:
+        pickle.dump(test_metrics, test_metrics_file)
 
-# for batch in dataset_test:
-#     x, y = x.to(device), y.to(device)
+    Write_log(log, metric2string(test_mse, test_mae, test_std, test_scc, pre_fix='test'))
 
-#     pred = [model(x) for model in models]
-#     pred = pred.mean()
-    
-#     metric_test += Metric(pred, y)
-#     pred_list.append(pred)
-#     y_list.append(y)
+    Write_log(log, f"\n==================== Finish testing @{get_current_time()} ====================")
 
-# metric_test = metric_test.mean()
-
-# # save metric and pred_y
-
-
-# log("independent test: {metric_test}")
-
-
-
-# log.close() 
+    log.close() 
 
 

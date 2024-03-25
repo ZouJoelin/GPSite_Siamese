@@ -1,6 +1,7 @@
 import os
 import subprocess
 import random
+from datetime import datetime
 
 import numpy as np
 import torch
@@ -202,6 +203,11 @@ def metric2string(mse, mae, abs_err_std, spearman_cc, pre_fix=""):
 
     return metric_string
 
+
+def get_current_time():
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    return current_time
 
 
 
