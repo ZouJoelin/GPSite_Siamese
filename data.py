@@ -52,7 +52,7 @@ class SiameseProteinGraphDataset(data.Dataset):
                 edge_index = torch_geometric.nn.radius_graph(X_ca, r=self.radius, loop=True, max_num_neighbors=1000, num_workers=4)
             elif self.graph_mode == "knn":
                 edge_index = torch_geometric.nn.knn_graph(X_ca, k=self.top_k)  
-        
+            # edge_index.shape: [2, edges_num]
         graph_data = torch_geometric.data.Data(name=name, seq=seq, coord=coord, node_feat=pre_computed_node_feature, edge_index=edge_index)
         return graph_data
 

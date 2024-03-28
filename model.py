@@ -166,6 +166,7 @@ class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predicto
 ##############  Geometric Featurizer  ##############
 ### neglected!
 def get_geo_feat(X, edge_index):
+    # X: [L, 5, 3] edge_index: [2, 3235]
     pos_embeddings = _positional_embeddings(edge_index)
     node_angles = _get_angle(X)
     node_dist, edge_dist = _get_distance(X, edge_index)
@@ -177,19 +178,23 @@ def get_geo_feat(X, edge_index):
     return geo_node_feat, geo_edge_feat
 
 def _positional_embeddings(edge_index, num_embeddings=16):
-    d = edge_index[0] - edge_index[1]
+    # edge_index: [2, edge_num]
+    d = edge_index[0] - edge_index[1]  # [edge_num]
 
     frequency = torch.exp(
         torch.arange(0, num_embeddings, 2, dtype=torch.float32, device=edge_index.device)
         * -(np.log(10000.0) / num_embeddings)
-    )
-    angles = d.unsqueeze(-1) * frequency
+    )  # [8]
+    angles = d.unsqueeze(-1) * frequency  # [edge_num, 1] * [8] (broadcast to [1, 8])
+    # [edge_num, 8]
     PE = torch.cat((torch.cos(angles), torch.sin(angles)), -1)
+    # [egde_num, 16]
     return PE
 
 def _get_angle(X, eps=1e-7):
+    # X: [L, 5, 3]
     # psi, omega, phi
-    X = torch.reshape(X[:, :3], [3*X.shape[0], 3])
+    X = torch.reshape(X[:, :3], [3*X.shape[0], 3])  # [3*L, 3] (select and chain N, CA, C)
     dX = X[1:] - X[:-1]
     U = F.normalize(dX, dim=-1)
     u_2 = U[:-2]
@@ -203,9 +208,9 @@ def _get_angle(X, eps=1e-7):
     # Angle between normals
     cosD = torch.sum(n_2 * n_1, -1)
     cosD = torch.clamp(cosD, -1 + eps, 1 - eps)
-    D = torch.sign(torch.sum(u_2 * n_1, -1)) * torch.acos(cosD)
+    D = torch.sign(torch.sum(u_2 * n_1, -1)) * torch.acos(cosD)  # D (+0, +pi) & (-0, -pi)
     D = F.pad(D, [1, 2]) # This scheme will remove phi[0], psi[-1], omega[-1]
-    D = torch.reshape(D, [-1, 3])
+    D = torch.reshape(D, [-1, 3])  # res_rotate: (phi, psi, omega)
     dihedral = torch.cat([torch.cos(D), torch.sin(D)], 1)
 
     # alpha, beta, gamma
@@ -213,7 +218,7 @@ def _get_angle(X, eps=1e-7):
     cosD = torch.clamp(cosD, -1 + eps, 1 - eps)
     D = torch.acos(cosD)
     D = F.pad(D, [1, 2])
-    D = torch.reshape(D, [-1, 3])
+    D = torch.reshape(D, [-1, 3])  # res_angle: (alpha, beta, gamma)
     bond_angles = torch.cat((torch.cos(D), torch.sin(D)), 1)
 
     node_angles = torch.cat((dihedral, bond_angles), 1)

@@ -25,6 +25,12 @@ parser.add_argument("--data_path", type=str, default="./data/",
 parser.add_argument("--output_path", type=str, default="./output/",
                     help="log your training process.")
 
+pretrain_model_mask = parser.add_mutually_exclusive_group()
+pretrain_model_mask.add_argument("--checkpoint_model_path", type=str, default=None,
+                    help="continue from checkpoint.")
+pretrain_model_mask.add_argument("--pretrained_model_path", type=str, default=None,
+                    help="transfer learning from GPSite.")
+
 parser.add_argument("--train", action='store_true', default=False)
 parser.add_argument("--test", action='store_true', default=False)
 parser.add_argument("--debug", action='store_true', default=False)
@@ -41,6 +47,8 @@ args = parser.parse_args()
 # running configuration
 data_path = args.data_path
 output_path = args.output_path
+checkpoint_model_path = args.checkpoint_model_path
+pretrained_model_path = args.pretrained_model_path
 run_id = args.run_id
 gpu_id = args.gpu_id
 num_workers = args.num_workers
@@ -50,23 +58,23 @@ seed = 42
 # hyper-parameter
 hyper_para = {
     'train_samples': 5000,
-    'batch_size_train': 8,
+    'batch_size_train': 6,
     'batch_size_test': 4,
-    'lr': 1e-3,
+    'lr': 3e-5,
     'beta12': (0.9, 0.999),
-    'folds_num': 5,
+    'folds_num': 9,
     'epochs_num': 200,
     'graph_size_limit': 400000,
     'graph_mode': "knn",
     'top_k': 30,
-    'patience': 10,
+    'patience': 15,
 }
 
 hyper_para_debug = {
     'train_samples': 8,
     'batch_size_train': 2,
     'batch_size_test': 2,
-    'lr': 1e-3,
+    'lr': 1e-4,
     'beta12': (0.9, 0.999),
     'folds_num': 3,
     'epochs_num': 3,
@@ -145,7 +153,7 @@ if args.train:
     Write_log(log, f"\n==================== Train & Validate with {folds_num}-Fold @{get_current_time()} ====================")
 
 
-    best_valid_metric = {"MSE": [], "MAE": [], "STD": [], "SCC": []}
+    best_valid_metric = {"MSE": [], "MAE": [], "STD": [], "SCC": [], "PCC": []}
     kf = KFold(n_splits=folds_num, shuffle=True, random_state=seed)
     for fold, (index_train, index_valid) in enumerate(kf.split(dataset)):
         Write_log(log, f"\n========== Fold {fold} @{get_current_time()} ==========")
@@ -159,7 +167,7 @@ if args.train:
 
         # split out dataset_valid
         if args.debug:
-            index_valid = list(range(batch_size_valid*2))
+            index_valid = list(range(batch_size_valid*2+1))
         dataset_valid = dataset.iloc[index_valid].reset_index(drop=True)
         dataset_valid = SiameseProteinGraphDataset(dataset_valid, feature_path=data_path, graph_mode=graph_mode, top_k=top_k)
         dataloader_valid = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2)
@@ -168,8 +176,25 @@ if args.train:
         # get empty model for each fold
         model = get_model().to(device)
 
+        # load pretrained parameters
+        if checkpoint_model_path:
+            checkpoint = torch.load(checkpoint_model_path, device)
+            model.load_state_dict(checkpoint)
+        elif pretrained_model_path:
+            pretrained_dict = torch.load(pretrained_model_path, device)
+            model_dict = model.state_dict()
+            # 1. filter out unnecessary keys
+            pretrained_dict = {layer: weight for layer, weight in pretrained_dict.items() if layer in model_dict}
+            # 2. overwrite entries in the existing state dict
+            model_dict.update(pretrained_dict)
+            # 3. load the new state dict
+            model.load_state_dict(model_dict)
+
+            
         # choose optimizer, scheduler, loss_fn
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=beta12, weight_decay=1e-5, eps=1e-5)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=beta12)
+        # optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=beta12, weight_decay=1e-5, eps=1e-5)
+        # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=(lambda epochs: 1/(1+0.2*epochs)))
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, steps_per_epoch=len(dataloader_train), epochs=epochs_num)
         loss_fn = nn.MSELoss()
 
@@ -188,15 +213,17 @@ if args.train:
                 "MSE": [],  # Mean_Squared_Error
                 "MAE": [],  # Mean_Absolute_Error
                 "STD": [],  # Absolute_Error_STD
-                "SCC": []   # Spearman_correlation_coefficient
+                "SCC": [],  # Spearman_Correlation_Coefficient
+                "PCC": []   # Pearson_Correlation_Coefficient
             },
             "valid": {
-                "MSE": [], "MAE": [], "STD": [], "SCC": [] 
+                "MSE": [], "MAE": [], "STD": [], "SCC": [], "PCC": []
             }
         }
         best_valid_mse = float('inf') 
         epochs_not_improving = 0
         for epoch in range(epochs_num):
+            start = get_current_timestamp()
 
             graph_size_seen_upmost = 0
             memory_used_upmost = 0
@@ -226,21 +253,24 @@ if args.train:
                 loss = loss_fn(pred, y)
 
                 train_loss_history.append(loss.item())
-                pred_list += pred.tolist()
-                y_list += y.tolist()
+                pred_list.append(pred)
+                y_list.append(y)
 
                 loss.backward()
                 optimizer.step()
                 scheduler.step()
 
                 progress_bar.set_description(f"\033[31mloss: {loss:.4f}\033[0m")
-
+            
+            pred_list = torch.hstack(pred_list).cpu()
+            y_list = torch.hstack(y_list).cpu()
             assert (len(pred_list) == len(y_list))
-            train_mse, train_mae, train_std, train_scc = Metric(torch.tensor(np.array(pred_list)), torch.tensor(np.array(y_list)))
+            train_mse, train_mae, train_std, train_scc, train_pcc = Metric(pred_list, y_list)
             metric_history["train"]["MSE"].append(train_mse.item())
             metric_history["train"]["MAE"].append(train_mae.item())
             metric_history["train"]["STD"].append(train_std.item())
             metric_history["train"]["SCC"].append(train_scc.item())
+            metric_history["train"]["PCC"].append(train_pcc.item())
 
 
             # valid
@@ -252,15 +282,18 @@ if args.train:
                     wt_graph, mut_graph, y = wt_graph.to(device), mut_graph.to(device), y.to(device)
                     pred = model(wt_graph, mut_graph)
 
-                    pred_list += pred.tolist()
-                    y_list += y.tolist()
+                    pred_list.append(pred)
+                    y_list.append(y)
 
+                pred_list = torch.hstack(pred_list).cpu()
+                y_list = torch.hstack(y_list).cpu()
                 assert (len(pred_list) == len(y_list))
-                valid_mse, valid_mae, valid_std, valid_scc = Metric(torch.tensor(np.array(pred_list)), torch.tensor(np.array(y_list)))
+                valid_mse, valid_mae, valid_std, valid_scc, valid_pcc = Metric(pred_list, y_list)
             metric_history["valid"]["MSE"].append(valid_mse.item())
             metric_history["valid"]["MAE"].append(valid_mae.item())
             metric_history["valid"]["STD"].append(valid_std.item())
             metric_history["valid"]["SCC"].append(valid_scc.item())
+            metric_history["valid"]["PCC"].append(valid_pcc.item())
 
 
             # record epoch progress
@@ -271,22 +304,26 @@ if args.train:
                 best_valid_mae = valid_mae.item()
                 best_valid_std = valid_std.item()
                 best_valid_scc = valid_scc.item()
+                best_valid_pcc = valid_pcc.item()
                 epochs_not_improving = 0
                 improve_or_not = ""
             else:
                 epochs_not_improving += 1
                 improve_or_not = f"No improvement +{epochs_not_improving}"
                 
-
+            
+            end = get_current_timestamp()
             # log this epoch
-            Write_log(log, (f"Epoch[{epoch}] lr: {scheduler.get_last_lr()[0]}; "
-                            f"{metric2string(train_mse, train_mae, train_std, train_scc, pre_fix='train')} "
-                            f"{metric2string(valid_mse, valid_mae, valid_std, valid_scc, pre_fix='valid')} "
+            Write_log(log, (f"Epoch[{epoch}] spent_time: {elapse_time(start, end)} lr: {scheduler.get_last_lr()[0]:15f}; "
+                            f"{metric2string(train_mse, train_mae, train_std, train_scc, train_pcc, pre_fix='train')} "
+                            f"{metric2string(valid_mse, valid_mae, valid_std, valid_scc, valid_pcc, pre_fix='valid')} "
                             f"{improve_or_not}"
                             ))
 
+            # scheduler.step()
+
             # early stop
-            if epochs_not_improving > patience:
+            if epochs_not_improving >= patience:
                 break
         
         # best model of this fold
@@ -295,8 +332,9 @@ if args.train:
         best_valid_metric["MAE"].append(best_valid_mae)
         best_valid_metric["STD"].append(best_valid_std)
         best_valid_metric["SCC"].append(best_valid_scc)
+        best_valid_metric["PCC"].append(best_valid_pcc)
         Write_log(log, (f"\nFold[{fold}] Best model on dataset_valid: "
-                        f"{metric2string(best_valid_mse, best_valid_mae, best_valid_std, best_valid_scc, pre_fix='best_valid')}"
+                        f"{metric2string(best_valid_mse, best_valid_mae, best_valid_std, best_valid_scc, best_valid_pcc, pre_fix='best_valid')}"
                         ))
 
         # save train_loss_history of every batches of every epochs for each fold
@@ -308,9 +346,9 @@ if args.train:
             pickle.dump(metric_history, metrics_file)
 
         # finish this fold, clean gpu memory
-        model.to("cpu")
-        del dataloader_train, dataloader_valid
-        torch.cuda.empty_cache()
+        # model.to("cpu")
+        # del dataloader_train, dataloader_valid
+        # torch.cuda.empty_cache()
 
     Write_log(log, f"\n==================== Finish {folds_num}-Fold training & validating @{get_current_time()} ====================")
 
@@ -322,8 +360,9 @@ if args.train:
     cv_valid_mae = np.mean(best_valid_metric['MAE'])
     cv_valid_std = np.mean(best_valid_metric['STD'])
     cv_valid_scc = np.mean(best_valid_metric['SCC'])
+    cv_valid_pcc = np.mean(best_valid_metric['PCC'])
     Write_log(log, (f"Cross Validation mean metrics: "
-                    f"{metric2string(cv_valid_mse, cv_valid_mae, cv_valid_std, cv_valid_scc, pre_fix='CV')}"
+                    f"{metric2string(cv_valid_mse, cv_valid_mae, cv_valid_std, cv_valid_scc, cv_valid_pcc, pre_fix='CV')}"
                     ))
     
     log.close()
@@ -376,15 +415,18 @@ if args.test:
             pred = [model(wt_graph, mut_graph) for model in model_list]
             pred = torch.vstack(pred).mean(dim=0)
 
-            test_pred_y["pred"] += pred.tolist()
-            test_pred_y["y"] += y.tolist()
-
+            test_pred_y["pred"].append(pred)
+            test_pred_y["y"].append(y)
+        
+        test_pred_y["pred"] = torch.hstack(test_pred_y["pred"]).cpu()
+        test_pred_y["y"] = torch.hstack(test_pred_y["y"]).cpu()
         assert (len(test_pred_y["pred"]) == len(test_pred_y["y"]))
-        test_mse, test_mae, test_std, test_scc = Metric(torch.tensor(np.array(test_pred_y["pred"])), torch.tensor(np.array(test_pred_y["y"])))
+        test_mse, test_mae, test_std, test_scc, test_pcc = Metric(test_pred_y["pred"], test_pred_y["y"])
     test_metrics["MSE"] = test_mse.item()
     test_metrics["MAE"] = test_mae.item()
     test_metrics["STD"] = test_std.item()
     test_metrics["SCC"] = test_scc.item()
+    test_metrics["PCC"] = test_pcc.item()
 
 
     # save pred-y pairs
@@ -395,7 +437,7 @@ if args.test:
     with open(f"{output_root}/test_metrics.pkl", "wb") as test_metrics_file:
         pickle.dump(test_metrics, test_metrics_file)
 
-    Write_log(log, metric2string(test_mse, test_mae, test_std, test_scc, pre_fix='test'))
+    Write_log(log, metric2string(test_mse, test_mae, test_std, test_scc, test_pcc, pre_fix='test'))
 
     Write_log(log, f"\n==================== Finish testing @{get_current_time()} ====================")
 

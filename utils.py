@@ -1,11 +1,11 @@
 import os
 import subprocess
 import random
-from datetime import datetime
+import datetime
 
 import numpy as np
 import torch
-from torchmetrics.functional import mean_squared_error, mean_absolute_error, spearman_corrcoef
+from torchmetrics.functional import mean_squared_error, mean_absolute_error, spearman_corrcoef, pearson_corrcoef
 from Bio import pairwise2
 
 
@@ -188,27 +188,38 @@ def Metric(pred: torch.tensor, target: torch.tensor):
     mae = mean_absolute_error(pred, target)
     abs_err_std = torch.std(torch.abs(pred - target))
     spearman_cc = spearman_corrcoef(pred, target)
+    pearson_cc = pearson_corrcoef(pred, target)
     
-    return mse, mae, abs_err_std, spearman_cc
+    return mse, mae, abs_err_std, spearman_cc, pearson_cc
     
 
-def metric2string(mse, mae, abs_err_std, spearman_cc, pre_fix=""):
+def metric2string(mse, mae, abs_err_std, spearman_cc, pearson_cc, pre_fix=""):
     if len(pre_fix) > 0:
         pre_fix += '_'
     metric_string = (f"{pre_fix}mse: {mse:.6f}, "
                      f"{pre_fix}mae: {mae:.6f}, "
                      f"{pre_fix}abs_err_std: {abs_err_std:.6f}, "
-                     f"{pre_fix}scc: {spearman_cc:.6f};" 
+                     f"{pre_fix}scc: {spearman_cc:.6f}, " 
+                     f"{pre_fix}pcc: {pearson_cc:.6f};" 
                      )
 
     return metric_string
 
 
 def get_current_time():
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
     return current_time
 
 
+def get_current_timestamp():
+    current_timestamp = datetime.datetime.now()
+
+    return current_timestamp
 
 
+def elapse_time(start: datetime.datetime, end: datetime.datetime):
+    elapse = round((end - start).total_seconds())
+    elapse = datetime.timedelta(seconds=elapse)
+
+    return elapse
