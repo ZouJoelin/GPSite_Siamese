@@ -430,7 +430,7 @@ Write_log(log, f"\n\n==================== Finish {folds_num}-Fold  @{get_current
 
 # evaluate on all test_pred_y pairs
 all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc = Metric(test_pred_y["pred"], test_pred_y["y"])
-Write_log(log, (f"Independent Test mean metrics: "
+Write_log(log, (f"Independent Test metrics on all test_pred_y: "
                 f"{metric2string(all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc, pre_fix='all_test')}"
                 ))
 
