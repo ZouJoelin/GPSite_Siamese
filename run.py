@@ -127,9 +127,13 @@ os.makedirs(output_models_path, exist_ok=True)
 output_loss_path = f"{output_root}/loss/"
 os.makedirs(output_loss_path, exist_ok=True)
 
-# reocrd metric_history in training
+# reocrd metric_history in train, valid, test
 output_metric_path = f"{output_root}/metrics/"
 os.makedirs(output_metric_path, exist_ok=True)
+
+# reocrd d_embedding in test
+output_d_embedding_path = f"{output_root}/d_embedding/"
+os.makedirs(output_d_embedding_path, exist_ok=True)
 
 
 # log initial information
@@ -391,6 +395,7 @@ for fold in range(folds_num):
 
     # get best model of this fold
     model_filepath =f"{output_models_path}/model_fold{fold}.ckpt"
+    model = get_model(group="test", d_embedding_path=output_d_embedding_path).to(device)
     model.load_state_dict(torch.load(model_filepath, device))
     model.eval()
 

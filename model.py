@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 from torch_scatter import scatter_mean, scatter_sum
 from torch_geometric.nn import TransformerConv
+from torch_geometric.utils import unbatch
 from data import *
 
 
@@ -102,7 +103,8 @@ class Graph_encoder(nn.Module):
 
 
 class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predictor
-    def __init__(self, node_input_dim=1217, edge_input_dim=450, hidden_dim=128, num_layers=4, dropout=0.2, augment_eps=0.1):
+    def __init__(self, node_input_dim=1217, edge_input_dim=450, hidden_dim=128, num_layers=4, dropout=0.2, augment_eps=0.1, 
+                 group="train", d_embedding_path=None):
         """
         Args:
             - node_input_dim: 1024+9+184
@@ -111,8 +113,12 @@ class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predicto
             - num_layers: 4
             - dropout: 0.2
             - augment_eps: 0.1
+            - group: "train" or "valid" or "test"
+            - d_embedding_path: path to save the d_embedding for further analysis
         """
         super(SiameseGPSite, self).__init__()
+        self.group = group
+        self.d_embedding_path = d_embedding_path
         self.augment_eps = augment_eps
         self.Graph_encoder = Graph_encoder(node_in_dim=node_input_dim, edge_in_dim=edge_input_dim, hidden_dim=hidden_dim, num_layers=num_layers, drop_rate=dropout)
         self.norm_1 = nn.BatchNorm1d(hidden_dim)  # over num_residue for each dim
@@ -158,8 +164,13 @@ class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predicto
         assert (wt_graph.batch == mut_graph.batch).all()
         d_embedding = mut_embedding - wt_embedding
         # shape: [num_residue, hidden_dim]
-        d_embedding = self.norm_2(d_embedding)
 
+        # save the d_embedding for further analysis while testing
+        if self.group == "test" and self.d_embedding_path is not None:  
+            for pair_name, d_emb in zip(mut_graph.name, unbatch(d_embedding, mut_graph.batch, dim=0)):
+                torch.save(d_emb.cpu(), f"{self.d_embedding_path}/{pair_name}.pt")
+
+        d_embedding = self.norm_2(d_embedding)
         d_embedding = self.projecter1D(d_embedding)
         # shape: [num_residue, 1]
         # output = scatter_mean(d_embedding, wt_graph.batch, dim=0)
@@ -324,9 +335,9 @@ def _quaternions(R):
 
 
 
-def get_model():
+def get_model(group="train", d_embedding_path=None):
 
-    model = SiameseGPSite()
+    model = SiameseGPSite(group=group, d_embedding_path=d_embedding_path)
     return model
 
 
