@@ -58,7 +58,7 @@ seed = 42
 
 # hyper-parameter
 hyper_para = {
-    'train_samples': 5000,
+    'train_samples': 10000,  # 5761*0.8*2
     'batch_size_train': 8,
     'batch_size_test': 4,
     'lr': 1e-4,
@@ -181,6 +181,12 @@ for fold in range(folds_num):
 
     # select out dataset_train
     dataset_train = dataset.iloc[index_train].reset_index(drop=True)
+    # data augment
+    dataset_train_flip = dataset_train.copy()
+    dataset_train_flip["wt_name"], dataset_train_flip["mut_name"] = dataset_train_flip["mut_name"], dataset_train_flip["wt_name"]
+    dataset_train_flip["ddg"] = -dataset_train_flip["ddg"]
+    dataset_train = pd.concat([dataset_train, dataset_train_flip], ignore_index=True)
+
     dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path=data_path, graph_mode=graph_mode, top_k=top_k)
     sampler = RandomSampler(dataset_train, replacement=True, num_samples=train_samples)
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, sampler=sampler, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2)

@@ -27,10 +27,15 @@ class SiameseProteinGraphDataset(data.Dataset):
     
     def __getitem__(self, idx):
         entry = self.data.iloc[idx]
-        wt_name = entry['pdb'].split('_')[0]  # 1A4Y
-        mut_name = entry['pdb'] +'_'+ entry['mutation']  # 1A4Y_A_B_DA435A
+        wt_name = entry['wt_name']
+        mut_name = entry['mut_name']
+        if len(wt_name.split('_')) == 3:  # wt_name: 1A4Y_A_B; mut_name: 1A4Y_A_B_DA435A
+            wt_name = wt_name.split('_')[0]
+        else:                             # wt_name: 1A4Y_A_B_DA435A; mut_name: 1A4Y_A_B
+            mut_name = wt_name.split('_')[0]
         y = entry['ddg']  # numpy.float64
-
+        # print(f"wt_name: {wt_name}; mut_name: {mut_name}")
+        
         wt_graph = self.featurize_graph(wt_name)
         mut_graph = self.featurize_graph(mut_name)
         y = torch.tensor(y, dtype=torch.float32)
@@ -63,7 +68,7 @@ def get_data(data_path = "./data") -> pd.DataFrame:
 
     # dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path="./data/", radius=15)
     # dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path="./data/", radius=15)
-    dataset = torch.load(f"{data_path}/dataset_shuffled.pt")
+    dataset = torch.load(f"{data_path}/dataset_processed.pt")
 
     return dataset
 
