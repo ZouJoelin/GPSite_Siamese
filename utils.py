@@ -182,7 +182,9 @@ def get_GPUs_used_memory():
     return gpu_memory
 
 
-def Metric(pred: torch.tensor, target: torch.tensor):
+def Metric(pred, target):
+    pred = torch.tensor(pred)
+    target = torch.tensor(target)
 
     mse = mean_squared_error(pred, target)
     mae = mean_absolute_error(pred, target)

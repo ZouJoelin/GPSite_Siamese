@@ -58,16 +58,16 @@ seed = 42
 # hyper-parameter
 hyper_para = {
     'train_samples': 5000,
-    'batch_size_train': 6,
+    'batch_size_train': 8,
     'batch_size_test': 4,
-    'lr': 3e-5,
+    'lr': 1e-4,
     'beta12': (0.9, 0.999),
-    'folds_num': 9,
-    'epochs_num': 200,
+    'folds_num': 5,
+    'epochs_num': 250,
     'graph_size_limit': 400000,
     'graph_mode': "knn",
     'top_k': 30,
-    'patience': 15,
+    'patience': 35,
 }
 
 hyper_para_debug = {
@@ -106,9 +106,9 @@ Seed_everything(seed)
 ############### Finished preparing, start running ###############
 
 # record output
-output_root = f"{output_path}/{run_id}"
 if args.debug:
-    output_root += "_debug"
+    run_id += "_debug"
+output_root = f"{output_path}/{run_id}"
 os.makedirs(output_root, exist_ok=True)
 
 
@@ -220,7 +220,8 @@ if args.train:
                 "MSE": [], "MAE": [], "STD": [], "SCC": [], "PCC": []
             }
         }
-        best_valid_mse = float('inf') 
+        # best_valid_mse = float('inf') 
+        best_valid_pcc = float('-inf') 
         epochs_not_improving = 0
         for epoch in range(epochs_num):
             start = get_current_timestamp()
@@ -262,8 +263,8 @@ if args.train:
 
                 progress_bar.set_description(f"\033[31mloss: {loss:.4f}\033[0m")
             
-            pred_list = torch.hstack(pred_list).cpu()
-            y_list = torch.hstack(y_list).cpu()
+            pred_list = torch.hstack(pred_list).tolist()
+            y_list = torch.hstack(y_list).tolist()
             assert (len(pred_list) == len(y_list))
             train_mse, train_mae, train_std, train_scc, train_pcc = Metric(pred_list, y_list)
             metric_history["train"]["MSE"].append(train_mse.item())
@@ -285,8 +286,8 @@ if args.train:
                     pred_list.append(pred)
                     y_list.append(y)
 
-                pred_list = torch.hstack(pred_list).cpu()
-                y_list = torch.hstack(y_list).cpu()
+                pred_list = torch.hstack(pred_list).tolist()
+                y_list = torch.hstack(y_list).tolist()
                 assert (len(pred_list) == len(y_list))
                 valid_mse, valid_mae, valid_std, valid_scc, valid_pcc = Metric(pred_list, y_list)
             metric_history["valid"]["MSE"].append(valid_mse.item())
@@ -297,9 +298,10 @@ if args.train:
 
 
             # record epoch progress
-            if valid_mse.item() < best_valid_mse:
+            if valid_pcc.item() > best_valid_pcc:
                 # save current epoch model as best model of this fold.
-                torch.save(model.state_dict(), f"{output_models_path}/modeling_fold{fold}.ckpt")
+                torch.save(model.cpu().state_dict(), f"{output_models_path}/modeling_fold{fold}.ckpt")
+                model.to(device)
                 best_valid_mse = valid_mse.item()
                 best_valid_mae = valid_mae.item()
                 best_valid_std = valid_std.item()
@@ -310,11 +312,11 @@ if args.train:
             else:
                 epochs_not_improving += 1
                 improve_or_not = f"No improvement +{epochs_not_improving}"
-                
+
             
             end = get_current_timestamp()
             # log this epoch
-            Write_log(log, (f"Epoch[{epoch}] spent_time: {elapse_time(start, end)} lr: {scheduler.get_last_lr()[0]:15f}; "
+            Write_log(log, (f"Epoch[{epoch}] spent_time: {elapse_time(start, end)} lr: {scheduler.get_last_lr()[0]:.6e}; "
                             f"{metric2string(train_mse, train_mae, train_std, train_scc, train_pcc, pre_fix='train')} "
                             f"{metric2string(valid_mse, valid_mae, valid_std, valid_scc, valid_pcc, pre_fix='valid')} "
                             f"{improve_or_not}"
@@ -418,8 +420,8 @@ if args.test:
             test_pred_y["pred"].append(pred)
             test_pred_y["y"].append(y)
         
-        test_pred_y["pred"] = torch.hstack(test_pred_y["pred"]).cpu()
-        test_pred_y["y"] = torch.hstack(test_pred_y["y"]).cpu()
+        test_pred_y["pred"] = torch.hstack(test_pred_y["pred"]).tolist()
+        test_pred_y["y"] = torch.hstack(test_pred_y["y"]).tolist()
         assert (len(test_pred_y["pred"]) == len(test_pred_y["y"]))
         test_mse, test_mae, test_std, test_scc, test_pcc = Metric(test_pred_y["pred"], test_pred_y["y"])
     test_metrics["MSE"] = test_mse.item()

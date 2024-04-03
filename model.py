@@ -115,6 +115,8 @@ class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predicto
         super(SiameseGPSite, self).__init__()
         self.augment_eps = augment_eps
         self.Graph_encoder = Graph_encoder(node_in_dim=node_input_dim, edge_in_dim=edge_input_dim, hidden_dim=hidden_dim, num_layers=num_layers, drop_rate=dropout)
+        self.norm_1 = nn.BatchNorm1d(hidden_dim)  # over num_residue for each dim
+
         self.KeepShapeMLP = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
@@ -124,6 +126,7 @@ class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predicto
             nn.ReLU()
         )
         self.projecter1D = nn.Linear(hidden_dim, 1)
+        self.norm_2 = nn.BatchNorm1d(hidden_dim)  # over num_residue for each dim
 
         # Initialization
         for p in self.parameters():
@@ -147,17 +150,20 @@ class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predicto
         wt_embedding = self.forward_once(wt_graph.coord, wt_graph.node_feat, wt_graph.edge_index, wt_graph.batch)
         mut_embedding = self.forward_once(mut_graph.coord, mut_graph.node_feat, mut_graph.edge_index, mut_graph.batch)
         # both of shape: [num_residue, hidden_dim]
+        wt_embedding = self.norm_1(wt_embedding)
+        mut_embedding = self.norm_1(mut_embedding)
 
         wt_embedding = self.KeepShapeMLP(wt_embedding)
         mut_embedding = self.KeepShapeMLP(mut_embedding)
         assert (wt_graph.batch == mut_graph.batch).all()
         d_embedding = mut_embedding - wt_embedding
         # shape: [num_residue, hidden_dim]
+        d_embedding = self.norm_2(d_embedding)
 
         d_embedding = self.projecter1D(d_embedding)
         # shape: [num_residue, 1]
         # output = scatter_mean(d_embedding, wt_graph.batch, dim=0)
-        output = scatter_sum(d_embedding, wt_graph.batch, dim=0)  # sum more reasonable
+        output = scatter_sum(d_embedding, wt_graph.batch, dim=0)  # sum is more reasonable
 
         return output.squeeze()
 

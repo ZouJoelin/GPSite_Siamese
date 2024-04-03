@@ -57,14 +57,15 @@ class SiameseProteinGraphDataset(data.Dataset):
         return graph_data
 
 
-def get_data(data_path = "./data") -> [pd.DataFrame, pd.DataFrame]:
-    dataset_train = torch.load(f"{data_path}/dataset_train.pt")
-    dataset_test = torch.load(f"{data_path}/dataset_test.pt")
+def get_data(data_path = "./data") -> pd.DataFrame:
+    # dataset_train = torch.load(f"{data_path}/dataset_train.pt")
+    # dataset_test = torch.load(f"{data_path}/dataset_test.pt")
 
     # dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path="./data/", radius=15)
     # dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path="./data/", radius=15)
+    dataset = torch.load(f"{data_path}/dataset_shuffled.pt")
 
-    return dataset_train, dataset_test
+    return dataset
 
 
 
