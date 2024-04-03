@@ -111,8 +111,6 @@ if args.debug:
     run_id += "_debug"
 output_root = f"{output_path}/{run_id}"
 os.makedirs(output_root, exist_ok=True)
-wandb.init(project="GPSite_siamese",
-           name=f"{run_id}",)
 
 # backup source code
 output_src_path = f"{output_root}/src/"
@@ -168,7 +166,9 @@ index = list(range(len(dataset)))
 index_k_split = np.array_split(index, folds_num)
 for fold in range(folds_num):
     Write_log(log, f"\n========== Fold {fold} @{get_current_time()} ========== ")
-    
+    wandb.init(project="GPSite_siamese", group=f"{run_id}", name=f"{run_id}_fold_{fold}")
+    wandb.config.update(hyper_para)
+
     # split dataset
     index_train = set(range(folds_num))
     index_test = fold
@@ -354,16 +354,15 @@ for fold in range(folds_num):
                         f"{improve_or_not}"
                         ))
         wandb.log({
-            f"{fold}": {
             "train": {"MSE": train_mse, "MAE": train_mae, "STD": train_std, "SCC": train_scc, "PCC": train_pcc},
             "valid": {"MSE": valid_mse, "MAE": valid_mae, "STD": valid_std, "SCC": valid_scc, "PCC": valid_pcc}
-            }
         })
 
         # early stop
         if epochs_not_improving >= patience:
             break
 
+    wandb.finish()
 
     # save train_loss_history of every batches of every epochs for each fold
     with open(f"{output_loss_path}/train_loss_fold{fold}.pkl", "wb") as loss_file:
@@ -431,7 +430,7 @@ Write_log(log, f"\n\n==================== Finish {folds_num}-Fold  @{get_current
 
 # evaluate on all test_pred_y pairs
 all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc = Metric(test_pred_y["pred"], test_pred_y["y"])
-Write_log(log, (f"Independent Test mean metrics: "
+Write_log(log, (f"Independent Test metrics on all test_pred_y: "
                 f"{metric2string(all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc, pre_fix='all_test')}"
                 ))
 
@@ -452,5 +451,5 @@ with open(f"{output_root}/test_pred_y.pkl", "wb") as pred_y_file:
 
 
 log.close() 
-wandb.finish()
+
 
