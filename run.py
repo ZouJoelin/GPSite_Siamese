@@ -38,6 +38,7 @@ pretrain_model_mask.add_argument("--data_augment", action='store_true', default=
 
 parser.add_argument("--run_id", type=str, required=True, default=None)
 parser.add_argument("--debug", action='store_true', default=False)
+parser.add_argument("--re_run", type=str, default=None)
 
 parser.add_argument("--gpu_id", type=int, default=0,
                     help="select GPU to train on.")
@@ -57,6 +58,8 @@ pretrained_model_path = args.pretrained_model_path
 data_augment = args.data_augment
 run_id = args.run_id
 gpu_id = args.gpu_id
+re_run = args.re_run
+re_run = [int(i) for i in re_run.split(',')] if re_run else None
 num_workers = args.num_workers
 pin_memory = args.pin_memory
 use_parallel = False
@@ -74,7 +77,7 @@ hyper_para = {
     'graph_size_limit': 400000,
     'graph_mode': "knn",
     'top_k': 30,
-    'patience': 35,
+    'patience': 75,
 }
 
 hyper_para_debug = {
@@ -172,7 +175,11 @@ index = list(range(len(dataset)))
 index_k_split = np.array_split(index, folds_num)
 for fold in range(folds_num):
     Write_log(log, f"\n========== Fold {fold} @{get_current_time()} ========== ")
-    wandb.init(project="GPSite_siamese", group=f"{run_id}", name=f"{run_id}_fold_{fold}")
+    if re_run and fold not in re_run:
+        continue
+
+    name = f"{run_id}_fold_{fold}" if not re_run else f"{run_id}_fold_{fold}*"
+    wandb.init(project="GPSite_siamese", group=f"{run_id}", name=name)
     wandb.config.update(hyper_para)
 
     # split dataset
@@ -390,8 +397,8 @@ for fold in range(folds_num):
     best_valid_metrics["SCC"].append(best_valid_scc)
     best_valid_metrics["PCC"].append(best_valid_pcc)
     # collect total valid_pred_y pairs
-    valid_pred_y["pred"] += best_valid_pred_y["pred"]
-    valid_pred_y["y"] += best_valid_pred_y["y"]
+    valid_pred_y["pred"].append(best_valid_pred_y["pred"])
+    valid_pred_y["y"].append(best_valid_pred_y["y"])
 
     Write_log(log, (f"\nFold[{fold}] Best model on dataset_valid: "
                     f"{metric2string(best_valid_mse, best_valid_mae, best_valid_std, best_valid_scc, best_valid_pcc, pre_fix='best_valid')}"
@@ -420,8 +427,8 @@ for fold in range(folds_num):
         pred_list = torch.hstack(pred_list).tolist()
         y_list = torch.hstack(y_list).tolist()
         # collect total test_pred_y pairs
-        test_pred_y["pred"] += pred_list
-        test_pred_y["y"] += y_list
+        test_pred_y["pred"].append(pred_list)
+        test_pred_y["y"].append(y_list)
 
         assert (len(pred_list) == len(y_list))
         test_mse, test_mae, test_std, test_scc, test_pcc = Metric(pred_list, y_list)
@@ -438,7 +445,7 @@ for fold in range(folds_num):
 Write_log(log, f"\n\n==================== Finish {folds_num}-Fold  @{get_current_time()} ==================== ")
 
 # evaluate on all test_pred_y pairs
-all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc = Metric(test_pred_y["pred"], test_pred_y["y"])
+all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc = Metric(torch.hstack(valid_pred_y["pred"]).tolist(), torch.hstack(valid_pred_y["y"]).tolist())
 Write_log(log, (f"Independent Test metrics on all test_pred_y: "
                 f"{metric2string(all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc, pre_fix='all_test')}"
                 ))
