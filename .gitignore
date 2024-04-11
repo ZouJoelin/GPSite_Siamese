@@ -11,3 +11,5 @@ datasets/
 data/
 
 output/
+*.out
+core*
