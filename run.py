@@ -33,14 +33,18 @@ pretrain_model_mask.add_argument("--checkpoint_model_path", type=str, default=No
                     help="continue from checkpoint.")
 pretrain_model_mask.add_argument("--pretrained_model_path", type=str, default=None,
                     help="transfer learning from GPSite.")
+pretrain_model_mask.add_argument("--data_augment", action='store_true', default=False,
+                    help="train data augment by flip wt and mut.")
 
 parser.add_argument("--run_id", type=str, required=True, default=None)
 parser.add_argument("--debug", action='store_true', default=False)
 
 parser.add_argument("--gpu_id", type=int, default=0,
                     help="select GPU to train on.")
-parser.add_argument("--num_workers", type=int, default=0,
-                    help="to turn on multi-process data loading, set the argument num_workers to a positive integer.")
+parser.add_argument("--num_workers", type=int, default=8,
+                    help="to turn on CPU's multi-process to load data, set the argument num_workers to a positive integer.")
+parser.add_argument("--pin_memory", action='store_true', default=True,
+                    help="if True, the data loader will copy Tensors direatly into device/CUDA pinned memory before returning them")
 
 args = parser.parse_args()
 
@@ -50,15 +54,17 @@ data_path = args.data_path
 output_path = args.output_path
 checkpoint_model_path = args.checkpoint_model_path
 pretrained_model_path = args.pretrained_model_path
+data_augment = args.data_augment
 run_id = args.run_id
 gpu_id = args.gpu_id
 num_workers = args.num_workers
+pin_memory = args.pin_memory
 use_parallel = False
 seed = 42
 
 # hyper-parameter
 hyper_para = {
-    'train_samples': 10000,  # 5761*0.8*2
+    'train_samples': 5000,  # 5761*0.8
     'batch_size_train': 8,
     'batch_size_test': 4,
     'lr': 1e-4,
@@ -87,7 +93,7 @@ hyper_para_debug = {
 if args.debug:
     hyper_para = hyper_para_debug
 
-train_samples = hyper_para["train_samples"]
+train_samples = hyper_para["train_samples"]*2 if data_augment else hyper_para["train_samples"]
 batch_size_train = hyper_para["batch_size_train"]
 batch_size_valid = batch_size_test = hyper_para["batch_size_test"]
 lr = hyper_para["lr"]
@@ -186,26 +192,27 @@ for fold in range(folds_num):
     # select out dataset_train
     dataset_train = dataset.iloc[index_train].reset_index(drop=True)
     # data augment
-    dataset_train_flip = dataset_train.copy()
-    dataset_train_flip["wt_name"], dataset_train_flip["mut_name"] = dataset_train_flip["mut_name"], dataset_train_flip["wt_name"]
-    dataset_train_flip["ddg"] = -dataset_train_flip["ddg"]
-    dataset_train = pd.concat([dataset_train, dataset_train_flip], ignore_index=True)
+    if data_augment:
+        dataset_train_flip = dataset_train.copy()
+        dataset_train_flip["wt_name"], dataset_train_flip["mut_name"] = dataset_train_flip["mut_name"], dataset_train_flip["wt_name"]
+        dataset_train_flip["ddg"] = -dataset_train_flip["ddg"]
+        dataset_train = pd.concat([dataset_train, dataset_train_flip], ignore_index=True)
 
     dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path=data_path, graph_mode=graph_mode, top_k=top_k)
     sampler = RandomSampler(dataset_train, replacement=True, num_samples=train_samples)
-    dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, sampler=sampler, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2)
+    dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, sampler=sampler, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
     Write_log(log, f"dataset_train: {len(dataset_train)} dataloader_train: {len(dataloader_train)}")
 
     # select out dataset_valid        
     dataset_valid = dataset.iloc[index_valid].reset_index(drop=True)
     dataset_valid = SiameseProteinGraphDataset(dataset_valid, feature_path=data_path, graph_mode=graph_mode, top_k=top_k)
-    dataloader_valid = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2)
+    dataloader_valid = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
     Write_log(log, f"dataset_valid: {len(dataset_valid)} dataloader_valid: {len(dataloader_valid)}")
 
     # select out dataset_test
     dataset_test = dataset.iloc[index_test].reset_index(drop=True)
     dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path=data_path, graph_mode=graph_mode, top_k=top_k)
-    dataloader_test = DataLoader(dataset_test, batch_size=batch_size_test, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2)
+    dataloader_test = DataLoader(dataset_test, batch_size=batch_size_test, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
     Write_log(log, f"dataset_test: {len(dataset_test)} dataloader_test: {len(dataloader_test)}")
 
 
@@ -347,15 +354,17 @@ for fold in range(folds_num):
 
 
         end = get_current_timestamp()
+        spent_time = elapse_time(start, end)
         # log this epoch
-        Write_log(log, (f"Epoch[{epoch}] spent_time: {elapse_time(start, end)} lr: {scheduler.get_last_lr()[0]:.6e}; "
+        Write_log(log, (f"Epoch[{epoch}] spent_time: {spent_time} lr: {scheduler.get_last_lr()[0]:.6e}; "
                         f"{metric2string(train_mse, train_mae, train_std, train_scc, train_pcc, pre_fix='train')} "
                         f"{metric2string(valid_mse, valid_mae, valid_std, valid_scc, valid_pcc, pre_fix='valid')} "
                         f"{improve_or_not}"
                         ))
         wandb.log({
             "train": {"MSE": train_mse, "MAE": train_mae, "STD": train_std, "SCC": train_scc, "PCC": train_pcc},
-            "valid": {"MSE": valid_mse, "MAE": valid_mae, "STD": valid_std, "SCC": valid_scc, "PCC": valid_pcc}
+            "valid": {"MSE": valid_mse, "MAE": valid_mae, "STD": valid_std, "SCC": valid_scc, "PCC": valid_pcc},
+            "spent": spent_time
         })
 
         # early stop
