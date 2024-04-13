@@ -33,7 +33,8 @@ pretrain_model_mask.add_argument("--checkpoint_model_path", type=str, default=No
                     help="continue from checkpoint.")
 pretrain_model_mask.add_argument("--pretrained_model_path", type=str, default=None,
                     help="transfer learning from GPSite.")
-pretrain_model_mask.add_argument("--data_augment", action='store_true', default=False,
+
+parser.add_argument("--data_augment", action='store_true', default=False,
                     help="train data augment by flip wt and mut.")
 
 parser.add_argument("--run_id", type=str, required=True, default=None)
@@ -72,7 +73,7 @@ hyper_para = {
     'batch_size_test': 4,
     'lr': 1e-4,
     'beta12': (0.9, 0.999),
-    'folds_num': 10,
+    'folds_num': 5,
     'epochs_num': 250,
     'graph_size_limit': 400000,
     'graph_mode': "knn",
@@ -86,7 +87,7 @@ hyper_para_debug = {
     'batch_size_test': 2,
     'lr': 1e-4,
     'beta12': (0.9, 0.999),
-    'folds_num': 5,
+    'folds_num': 3,
     'epochs_num': 3,
     'graph_size_limit': 100000,
     'graph_mode': "knn",
@@ -371,7 +372,7 @@ for fold in range(folds_num):
         wandb.log({
             "train": {"MSE": train_mse, "MAE": train_mae, "STD": train_std, "SCC": train_scc, "PCC": train_pcc},
             "valid": {"MSE": valid_mse, "MAE": valid_mae, "STD": valid_std, "SCC": valid_scc, "PCC": valid_pcc},
-            "spent": spent_time
+            "spent_time": int(spent_time.seconds)
         })
 
         # early stop
@@ -397,8 +398,8 @@ for fold in range(folds_num):
     best_valid_metrics["SCC"].append(best_valid_scc)
     best_valid_metrics["PCC"].append(best_valid_pcc)
     # collect total valid_pred_y pairs
-    valid_pred_y["pred"].append(best_valid_pred_y["pred"])
-    valid_pred_y["y"].append(best_valid_pred_y["y"])
+    valid_pred_y["pred"].append(torch.tensor(best_valid_pred_y["pred"]))
+    valid_pred_y["y"].append(torch.tensor(best_valid_pred_y["y"]))
 
     Write_log(log, (f"\nFold[{fold}] Best model on dataset_valid: "
                     f"{metric2string(best_valid_mse, best_valid_mae, best_valid_std, best_valid_scc, best_valid_pcc, pre_fix='best_valid')}"
@@ -427,8 +428,8 @@ for fold in range(folds_num):
         pred_list = torch.hstack(pred_list).tolist()
         y_list = torch.hstack(y_list).tolist()
         # collect total test_pred_y pairs
-        test_pred_y["pred"].append(pred_list)
-        test_pred_y["y"].append(y_list)
+        test_pred_y["pred"].append(torch.tensor(pred_list))
+        test_pred_y["y"].append(torch.tensor(y_list))
 
         assert (len(pred_list) == len(y_list))
         test_mse, test_mae, test_std, test_scc, test_pcc = Metric(pred_list, y_list)
@@ -445,7 +446,8 @@ for fold in range(folds_num):
 Write_log(log, f"\n\n==================== Finish {folds_num}-Fold  @{get_current_time()} ==================== ")
 
 # evaluate on all test_pred_y pairs
-all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc = Metric(torch.hstack(valid_pred_y["pred"]).tolist(), torch.hstack(valid_pred_y["y"]).tolist())
+all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc = Metric(torch.hstack(test_pred_y["pred"]).tolist(), 
+                                                                              torch.hstack(test_pred_y["y"]).tolist())
 Write_log(log, (f"Independent Test metrics on all test_pred_y: "
                 f"{metric2string(all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc, pre_fix='all_test')}"
                 ))
