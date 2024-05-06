@@ -29,7 +29,7 @@ class SiameseProteinGraphDataset(data.Dataset):
         entry = self.data.iloc[idx]
         wt_name = entry['wt_name']
         mut_name = entry['mut_name']
-        if len(wt_name.split('_')) == 3:  # wt_name: 1A4Y_A_B; mut_name: 1A4Y_A_B_DA435A
+        if len(wt_name.split('_')) == 3 or len(wt_name.split('_')) == 1:  # wt_name: 1A4Y_A_B/1A4Y; mut_name: 1A4Y_A_B_DA435A
             wt_name = wt_name.split('_')[0]
         else:                             # wt_name: 1A4Y_A_B_DA435A; mut_name: 1A4Y_A_B
             mut_name = wt_name.split('_')[0]
@@ -62,13 +62,13 @@ class SiameseProteinGraphDataset(data.Dataset):
         return graph_data
 
 
-def get_data(data_path = "./data") -> pd.DataFrame:
+def get_data(dataset_path = "./data/dataset_processed.pt") -> pd.DataFrame:
     # dataset_train = torch.load(f"{data_path}/dataset_train.pt")
     # dataset_test = torch.load(f"{data_path}/dataset_test.pt")
 
     # dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path="./data/", radius=15)
     # dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path="./data/", radius=15)
-    dataset = torch.load(f"{data_path}/dataset_processed.pt")
+    dataset = torch.load(dataset_path)
 
     return dataset
 

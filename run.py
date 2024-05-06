@@ -23,8 +23,10 @@ wandb.login()
 # parse argument
 parser = argparse.ArgumentParser(description='Train SiameseGPSite for PPI mutation affinity prediction.')
 
-parser.add_argument("--data_path", type=str, default="./data/",
-                    help="path where store dataset and feature.")
+parser.add_argument("--dataset_path", type=str, default="./data/skempi_v2/dataset_processed.pt",
+                    help="file path where store dataset.")
+parser.add_argument("--feature_path", type=str, default="./data/skempi_v2/",
+                    help="root path where store feature.")
 parser.add_argument("--output_path", type=str, default="./output/",
                     help="log your training process.")
 
@@ -52,7 +54,8 @@ args = parser.parse_args()
 
 
 # running configuration
-data_path = args.data_path
+dataset_path = args.dataset_path
+feature_path = args.feature_path
 output_path = args.output_path
 checkpoint_model_path = args.checkpoint_model_path
 pretrained_model_path = args.pretrained_model_path
@@ -161,7 +164,7 @@ Write_log(log, f"Using device: {device}")
 
 
 # get dataset
-dataset = get_data(data_path)
+dataset = get_data(dataset_path)
 
 
 # K-Fold
@@ -206,20 +209,20 @@ for fold in range(folds_num):
         dataset_train_flip["ddg"] = -dataset_train_flip["ddg"]
         dataset_train = pd.concat([dataset_train, dataset_train_flip], ignore_index=True)
 
-    dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path=data_path, graph_mode=graph_mode, top_k=top_k)
+    dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k)
     sampler = RandomSampler(dataset_train, replacement=True, num_samples=train_samples)
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, sampler=sampler, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
     Write_log(log, f"dataset_train: {len(dataset_train)} dataloader_train: {len(dataloader_train)}")
 
     # select out dataset_valid        
     dataset_valid = dataset.iloc[index_valid].reset_index(drop=True)
-    dataset_valid = SiameseProteinGraphDataset(dataset_valid, feature_path=data_path, graph_mode=graph_mode, top_k=top_k)
+    dataset_valid = SiameseProteinGraphDataset(dataset_valid, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k)
     dataloader_valid = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
     Write_log(log, f"dataset_valid: {len(dataset_valid)} dataloader_valid: {len(dataloader_valid)}")
 
     # select out dataset_test
     dataset_test = dataset.iloc[index_test].reset_index(drop=True)
-    dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path=data_path, graph_mode=graph_mode, top_k=top_k)
+    dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k)
     dataloader_test = DataLoader(dataset_test, batch_size=batch_size_test, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
     Write_log(log, f"dataset_test: {len(dataset_test)} dataloader_test: {len(dataloader_test)}")
 
