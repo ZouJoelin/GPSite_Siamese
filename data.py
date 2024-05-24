@@ -33,7 +33,7 @@ class SiameseProteinGraphDataset(data.Dataset):
             wt_name = wt_name.split('_')[0]
         else:                             # wt_name: 1A4Y_A_B_DA435A; mut_name: 1A4Y_A_B
             mut_name = wt_name.split('_')[0]
-        y = entry['ddg']  # numpy.float64
+        y = entry['target']  # numpy.float64
         # print(f"wt_name: {wt_name}; mut_name: {mut_name}")
         
         wt_graph = self.featurize_graph(wt_name)

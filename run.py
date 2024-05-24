@@ -41,7 +41,8 @@ parser.add_argument("--data_augment", action='store_true', default=False,
 
 parser.add_argument("--run_id", type=str, required=True, default=None)
 parser.add_argument("--debug", action='store_true', default=False)
-parser.add_argument("--re_run", type=str, default=None)
+parser.add_argument("--re_run", type=str, default=None,
+                    help="re-run specific fold(s), split by comma. (e.g. '2,4,9')")
 
 parser.add_argument("--gpu_id", type=int, default=0,
                     help="select GPU to train on.")
@@ -71,7 +72,7 @@ seed = 42
 
 # hyper-parameter
 hyper_para = {
-    'train_samples': 5000,  # 5761*0.8
+    'train_samples': 10000,  # 5761*0.8
     'batch_size_train': 8,
     'batch_size_test': 4,
     'lr': 1e-4,
@@ -206,7 +207,7 @@ for fold in range(folds_num):
     if data_augment:
         dataset_train_flip = dataset_train.copy()
         dataset_train_flip["wt_name"], dataset_train_flip["mut_name"] = dataset_train_flip["mut_name"], dataset_train_flip["wt_name"]
-        dataset_train_flip["ddg"] = -dataset_train_flip["ddg"]
+        dataset_train_flip["target"] = -dataset_train_flip["target"]
         dataset_train = pd.concat([dataset_train, dataset_train_flip], ignore_index=True)
 
     dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k)
