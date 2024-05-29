@@ -72,17 +72,17 @@ seed = 42
 
 # hyper-parameter
 hyper_para = {
-    'train_samples': 15000,  # 5761*0.8
+    # 'train_samples': 3500,  # 5761*0.8
     'batch_size_train': 8,
     'batch_size_test': 4,
     'lr': 1e-4,
     'beta12': (0.9, 0.999),
     'folds_num': 10,
-    'epochs_num': 200,
+    'epochs_num': 250,
     'graph_size_limit': 400000,
     'graph_mode': "knn",
     'top_k': 30,
-    'patience': 50,
+    'patience': 75,
 }
 
 hyper_para_debug = {
@@ -101,7 +101,7 @@ hyper_para_debug = {
 if args.debug:
     hyper_para = hyper_para_debug
 
-train_samples = hyper_para["train_samples"]*2 if data_augment else hyper_para["train_samples"]
+# train_samples = hyper_para["train_samples"]*2 if data_augment else hyper_para["train_samples"]
 batch_size_train = hyper_para["batch_size_train"]
 batch_size_valid = batch_size_test = hyper_para["batch_size_test"]
 lr = hyper_para["lr"]
@@ -146,6 +146,10 @@ os.makedirs(output_metric_path, exist_ok=True)
 # reocrd d_embedding in test
 output_d_embedding_path = f"{output_root}/d_embedding/"
 os.makedirs(output_d_embedding_path, exist_ok=True)
+
+# record pred_target pairs while running
+output_pred_target_path = f"{output_root}/pred_target/"
+os.makedirs(output_pred_target_path, exist_ok=True)
 
 
 # log initial information
@@ -206,8 +210,9 @@ for fold in range(folds_num):
         dataset_train = pd.concat([dataset_train, dataset_train_flip], ignore_index=True)
 
     dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k)
-    sampler = RandomSampler(dataset_train, replacement=True, num_samples=train_samples)
-    dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, sampler=sampler, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
+    # sampler = RandomSampler(dataset_train, replacement=True, num_samples=train_samples)
+    # dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, sampler=sampler, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
+    dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, shuffle=True, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
     Write_log(log, f"dataset_train: {len(dataset_train)} dataloader_train: {len(dataloader_train)}")
 
     # select out dataset_valid
@@ -396,7 +401,11 @@ for fold in range(folds_num):
     best_valid_metrics["STD"].append(best_valid_std)
     best_valid_metrics["SCC"].append(best_valid_scc)
     best_valid_metrics["PCC"].append(best_valid_pcc)
-    # collect total valid_pred_y pairs
+    # collect valid_pred_y pairs
+    with open(f"{output_pred_target_path}/valid_pred_target_fold_{fold}.pkl", "wb") as pred_y_file:
+        pred_target = {"pred": [torch.tensor(best_valid_pred_y["pred"])], "target": [torch.tensor(best_valid_pred_y["y"])]}
+        pickle.dump(pred_target, pred_y_file)
+
     valid_pred_y["pred"].append(torch.tensor(best_valid_pred_y["pred"]))
     valid_pred_y["y"].append(torch.tensor(best_valid_pred_y["y"]))
 
@@ -427,6 +436,10 @@ for fold in range(folds_num):
         pred_list = torch.hstack(pred_list).tolist()
         y_list = torch.hstack(y_list).tolist()
         # collect total test_pred_y pairs
+        with open(f"{output_pred_target_path}/test_pred_target_fold_{fold}.pkl", "wb") as pred_y_file:
+            pred_target = {"pred": [torch.tensor(pred_list)], "target": [torch.tensor(y_list)]}
+            pickle.dump(pred_target, pred_y_file)
+
         test_pred_y["pred"].append(torch.tensor(pred_list))
         test_pred_y["y"].append(torch.tensor(y_list))
 
