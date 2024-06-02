@@ -28,7 +28,7 @@ parser.add_argument("--dataset_name", type=str, required=True,
                     help="name of dataset.")
 parser.add_argument("--model_path", type=str, default="./models/",
                     help="path to load trained_model.")
-parser.add_argument("--output_path", type=str, default="./predict/",
+parser.add_argument("--output_path", type=str, default="./test/",
                     help="log your training process.")
 
 parser.add_argument("--mean_on_models", action='store_true', default=False)
@@ -113,8 +113,6 @@ Write_log(log, f"finished models count: {folds_num}")
 
 # get dataset
 dataset = get_data(dataset_path)
-splits_num = dataset["split"].max() + 1
-splits_per_fold = int(splits_num / folds_num)
 
 
 # predict
@@ -128,6 +126,9 @@ if not mean_on_models:
         Write_log(log, f"\n========== Fold {fold} @{get_current_time()} ========== ")
 
         # select out dataset_test for this fold
+        splits_num = dataset["split"].max() + 1
+        splits_per_fold = int(splits_num / folds_num)
+        
         index_test = fold
         index_test = set(range(index_test*splits_per_fold, (index_test+1)*splits_per_fold))
         dataset_test = dataset[dataset["split"].isin(index_test)].reset_index(drop=True)
@@ -135,13 +136,15 @@ if not mean_on_models:
         dataloader_test = DataLoader(dataset_test, batch_size=batch_size_test, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
         Write_log(log, f"dataset_test: {len(dataset_test)} dataloader_test: {len(dataloader_test)}")
 
+        name_list = []
         pred_list = []
         y_list = []
         with torch.no_grad():
-            for batch, (wt_graph, mut_graph, y) in tqdm(enumerate(dataloader_test), total=len(dataloader_test)):
+            for batch, (name, wt_graph, mut_graph, y) in tqdm(enumerate(dataloader_test), total=len(dataloader_test)):
                 wt_graph, mut_graph, y = wt_graph.to(device), mut_graph.to(device), y.to(device)
                 pred = model(wt_graph, mut_graph)
 
+                name_list += name
                 pred_list.append(pred)
                 y_list.append(y)
 
@@ -149,9 +152,10 @@ if not mean_on_models:
             y_list = torch.hstack(y_list).tolist()
             # collect total test_pred_y pairs
             with open(f"{output_pred_target_path}/test_pred_target_fold_{fold}.pkl", "wb") as pred_y_file:
-                pred_target = {"pred": [torch.tensor(pred_list)], "target": [torch.tensor(y_list)]}
+                pred_target = {"name": name_list, "pred": [torch.tensor(pred_list)], "target": [torch.tensor(y_list)]}
                 pickle.dump(pred_target, pred_y_file)
 
+            test_pred_y["name"].append(name_list)
             test_pred_y["pred"].append(torch.tensor(pred_list))
             test_pred_y["y"].append(torch.tensor(y_list))
 
@@ -184,10 +188,12 @@ else:
     Write_log(log, f"dataset_test: {len(dataset_test)} dataloader: {len(dataloader_test)}")
 
     with torch.no_grad():
-        for batch, (wt_graph, mut_graph, y) in tqdm(enumerate(dataloader_test), total=len(dataloader_test)):
+        for batch, (name, wt_graph, mut_graph, y) in tqdm(enumerate(dataloader_test), total=len(dataloader_test)):
             wt_graph, mut_graph, y = wt_graph.to(device), mut_graph.to(device), y.to(device)
             pred = [model(wt_graph, mut_graph) for model in model_list]
             pred = torch.vstack(pred).mean(dim=0)
+
+            test_pred_y["name"] += name
             test_pred_y["pred"].append(pred)
             test_pred_y["y"].append(y)
         

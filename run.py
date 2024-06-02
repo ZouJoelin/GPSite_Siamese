@@ -173,8 +173,8 @@ Write_log(log, f"\n\n==================== Start {folds_num}-Fold  @{get_current_
 
 best_valid_metrics = {"MSE": [], "MAE": [], "STD": [], "SCC": [], "PCC": []}
 all_test_metrics = {"MSE": [], "MAE": [], "STD": [], "SCC": [], "PCC": []}
-valid_pred_y = {"pred": [], "y": []}
-test_pred_y = {"pred": [], "y": []}
+valid_pred_y = {"name": [], "pred": [], "y": []}
+test_pred_y = {"name": [], "pred": [], "y": []}
 
 index = list(range(len(dataset)))
 index_k_split = np.array_split(index, folds_num)
@@ -283,7 +283,7 @@ for fold in range(folds_num):
         pred_list = []
         y_list = []
         progress_bar = tqdm(enumerate(dataloader_train), total=len(dataloader_train), position=0, leave=True)
-        for batch, (wt_graph, mut_graph, y) in progress_bar:
+        for batch, (name, wt_graph, mut_graph, y) in progress_bar:
             optimizer.zero_grad()
             wt_graph, mut_graph, y = wt_graph.to(device), mut_graph.to(device), y.to(device)
 
@@ -325,13 +325,15 @@ for fold in range(folds_num):
 
         # valid
         model.eval()
+        name_list = []
         pred_list = []
         y_list = []
         with torch.no_grad():
-            for batch, (wt_graph, mut_graph, y) in enumerate(dataloader_valid):
+            for batch, (name, wt_graph, mut_graph, y) in enumerate(dataloader_valid):
                 wt_graph, mut_graph, y = wt_graph.to(device), mut_graph.to(device), y.to(device)
                 pred = model(wt_graph, mut_graph)
 
+                name_list += name
                 pred_list.append(pred)
                 y_list.append(y)
 
@@ -347,6 +349,9 @@ for fold in range(folds_num):
 
 
         # record epoch progress
+        if epoch == 0:
+            best_valid_pred_y["name"] = name_list
+
         if valid_pcc.item() > best_valid_pcc:
             # save current epoch model as best model of this fold.
             torch.save(model.cpu().state_dict(), f"{output_models_path}/modeling_fold{fold}.ckpt")
@@ -402,6 +407,7 @@ for fold in range(folds_num):
     best_valid_metrics["SCC"].append(best_valid_scc)
     best_valid_metrics["PCC"].append(best_valid_pcc)
     # collect total valid_pred_y pairs
+    valid_pred_y["name"].append(best_valid_pred_y["name"])
     valid_pred_y["pred"].append(torch.tensor(best_valid_pred_y["pred"]))
     valid_pred_y["y"].append(torch.tensor(best_valid_pred_y["y"]))
 
@@ -419,19 +425,22 @@ for fold in range(folds_num):
     model.load_state_dict(torch.load(model_filepath, device))
     model.eval()
 
+    name_list = []
     pred_list = []
     y_list = []
     with torch.no_grad():
-        for batch, (wt_graph, mut_graph, y) in tqdm(enumerate(dataloader_test), total=len(dataloader_test)):
+        for batch, (name, wt_graph, mut_graph, y) in tqdm(enumerate(dataloader_test), total=len(dataloader_test)):
             wt_graph, mut_graph, y = wt_graph.to(device), mut_graph.to(device), y.to(device)
             pred = model(wt_graph, mut_graph)
 
+            name_list += name
             pred_list.append(pred)
             y_list.append(y)
 
         pred_list = torch.hstack(pred_list).tolist()
         y_list = torch.hstack(y_list).tolist()
         # collect total test_pred_y pairs
+        test_pred_y["name"].append(name_list)
         test_pred_y["pred"].append(torch.tensor(pred_list))
         test_pred_y["y"].append(torch.tensor(y_list))
 

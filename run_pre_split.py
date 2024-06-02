@@ -86,7 +86,7 @@ hyper_para = {
 }
 
 hyper_para_debug = {
-    'train_samples': 8,
+    'samples_num': 8,
     'batch_size_train': 2,
     'batch_size_test': 2,
     'lr': 1e-4,
@@ -101,7 +101,7 @@ hyper_para_debug = {
 if args.debug:
     hyper_para = hyper_para_debug
 
-# train_samples = hyper_para["train_samples"]*2 if data_augment else hyper_para["train_samples"]
+samples_num = hyper_para["samples_num"]*2 if data_augment else hyper_para["samples_num"]
 batch_size_train = hyper_para["batch_size_train"]
 batch_size_valid = batch_size_test = hyper_para["batch_size_test"]
 lr = hyper_para["lr"]
@@ -177,8 +177,8 @@ Write_log(log, f"\n\n==================== Start {folds_num}-Fold  @{get_current_
 
 best_valid_metrics = {"MSE": [], "MAE": [], "STD": [], "SCC": [], "PCC": []}
 all_test_metrics = {"MSE": [], "MAE": [], "STD": [], "SCC": [], "PCC": []}
-valid_pred_y = {"pred": [], "y": []}
-test_pred_y = {"pred": [], "y": []}
+valid_pred_y = {"name": [], "pred": [], "y": []}
+test_pred_y = {"name": [], "pred": [], "y": []}
 
 for fold in range(folds_num):
     Write_log(log, f"\n========== Fold {fold} @{get_current_time()} ========== ")
@@ -210,21 +210,31 @@ for fold in range(folds_num):
         dataset_train = pd.concat([dataset_train, dataset_train_flip], ignore_index=True)
 
     dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k)
-    # sampler = RandomSampler(dataset_train, replacement=True, num_samples=train_samples)
-    # dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, sampler=sampler, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
-    dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, shuffle=True, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
+    if args.debug:
+        sampler_train = RandomSampler(dataset_train, replacement=True, num_samples=samples_num)
+        dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, sampler=sampler_train, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
+    else:
+        dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, shuffle=True, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
     Write_log(log, f"dataset_train: {len(dataset_train)} dataloader_train: {len(dataloader_train)}")
 
     # select out dataset_valid
     dataset_valid = dataset[dataset["split"].isin(index_valid)].reset_index(drop=True)
     dataset_valid = SiameseProteinGraphDataset(dataset_valid, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k)
-    dataloader_valid = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
+    if args.debug:
+        sampler_valid = RandomSampler(dataset_valid, replacement=True, num_samples=samples_num)
+        dataloader_valid = DataLoader(dataset_valid, batch_size=batch_size_valid, sampler=sampler_valid, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
+    else:
+        dataloader_valid = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
     Write_log(log, f"dataset_valid: {len(dataset_valid)} dataloader_valid: {len(dataloader_valid)}")
 
     # select out dataset_test
     dataset_test = dataset[dataset["split"].isin(index_test)].reset_index(drop=True)
     dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k)
-    dataloader_test = DataLoader(dataset_test, batch_size=batch_size_test, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
+    if args.debug:
+        sampler_test = RandomSampler(dataset_test, replacement=True, num_samples=samples_num)
+        dataloader_test = DataLoader(dataset_test, batch_size=batch_size_test, sampler=sampler_test, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
+    else:
+        dataloader_test = DataLoader(dataset_test, batch_size=batch_size_test, shuffle=False, drop_last=False, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
     Write_log(log, f"dataset_test: {len(dataset_test)} dataloader_test: {len(dataloader_test)}")
 
 
@@ -283,7 +293,7 @@ for fold in range(folds_num):
         pred_list = []
         y_list = []
         progress_bar = tqdm(enumerate(dataloader_train), total=len(dataloader_train), position=0, leave=True)
-        for batch, (wt_graph, mut_graph, y) in progress_bar:
+        for batch, (name, wt_graph, mut_graph, y) in progress_bar:
             optimizer.zero_grad()
             wt_graph, mut_graph, y = wt_graph.to(device), mut_graph.to(device), y.to(device)
 
@@ -325,13 +335,15 @@ for fold in range(folds_num):
 
         # valid
         model.eval()
+        name_list = []
         pred_list = []
         y_list = []
         with torch.no_grad():
-            for batch, (wt_graph, mut_graph, y) in enumerate(dataloader_valid):
+            for batch, (name, wt_graph, mut_graph, y) in enumerate(dataloader_valid):
                 wt_graph, mut_graph, y = wt_graph.to(device), mut_graph.to(device), y.to(device)
                 pred = model(wt_graph, mut_graph)
 
+                name_list += name
                 pred_list.append(pred)
                 y_list.append(y)
 
@@ -347,6 +359,9 @@ for fold in range(folds_num):
 
 
         # record epoch progress
+        if epoch == 0:
+            best_valid_pred_y["name"] = name_list
+
         if valid_pcc.item() > best_valid_pcc:
             # save current epoch model as best model of this fold.
             torch.save(model.cpu().state_dict(), f"{output_models_path}/modeling_fold{fold}.ckpt")
@@ -403,9 +418,10 @@ for fold in range(folds_num):
     best_valid_metrics["PCC"].append(best_valid_pcc)
     # collect valid_pred_y pairs
     with open(f"{output_pred_target_path}/valid_pred_target_fold_{fold}.pkl", "wb") as pred_y_file:
-        pred_target = {"pred": [torch.tensor(best_valid_pred_y["pred"])], "target": [torch.tensor(best_valid_pred_y["y"])]}
+        pred_target = {"name": best_valid_pred_y["name"], "pred": [torch.tensor(best_valid_pred_y["pred"])], "target": [torch.tensor(best_valid_pred_y["y"])]}
         pickle.dump(pred_target, pred_y_file)
 
+    valid_pred_y["name"].append(best_valid_pred_y["name"])
     valid_pred_y["pred"].append(torch.tensor(best_valid_pred_y["pred"]))
     valid_pred_y["y"].append(torch.tensor(best_valid_pred_y["y"]))
 
@@ -423,13 +439,15 @@ for fold in range(folds_num):
     model.load_state_dict(torch.load(model_filepath, device))
     model.eval()
 
+    name_list = []
     pred_list = []
     y_list = []
     with torch.no_grad():
-        for batch, (wt_graph, mut_graph, y) in tqdm(enumerate(dataloader_test), total=len(dataloader_test)):
+        for batch, (name, wt_graph, mut_graph, y) in tqdm(enumerate(dataloader_test), total=len(dataloader_test)):
             wt_graph, mut_graph, y = wt_graph.to(device), mut_graph.to(device), y.to(device)
             pred = model(wt_graph, mut_graph)
 
+            name_list += name
             pred_list.append(pred)
             y_list.append(y)
 
@@ -437,9 +455,10 @@ for fold in range(folds_num):
         y_list = torch.hstack(y_list).tolist()
         # collect total test_pred_y pairs
         with open(f"{output_pred_target_path}/test_pred_target_fold_{fold}.pkl", "wb") as pred_y_file:
-            pred_target = {"pred": [torch.tensor(pred_list)], "target": [torch.tensor(y_list)]}
+            pred_target = {"name": name_list, "pred": [torch.tensor(pred_list)], "target": [torch.tensor(y_list)]}
             pickle.dump(pred_target, pred_y_file)
 
+        test_pred_y["name"].append(name_list)
         test_pred_y["pred"].append(torch.tensor(pred_list))
         test_pred_y["y"].append(torch.tensor(y_list))
 

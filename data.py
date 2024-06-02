@@ -40,7 +40,7 @@ class SiameseProteinGraphDataset(data.Dataset):
         mut_graph = self.featurize_graph(mut_name)
         y = torch.tensor(y, dtype=torch.float32)
 
-        return wt_graph, mut_graph, y
+        return mut_name, wt_graph, mut_graph, y
 
     def featurize_graph(self, name):
         with torch.no_grad():
