@@ -77,7 +77,7 @@ hyper_para = {
     'batch_size_test': 4,
     'lr': 1e-4,
     'beta12': (0.9, 0.999),
-    'folds_num': 10,
+    'folds_num': 5,
     'epochs_num': 250,
     'graph_size_limit': 400000,
     'graph_mode': "knn",
@@ -100,8 +100,7 @@ hyper_para_debug = {
 }
 if args.debug:
     hyper_para = hyper_para_debug
-
-samples_num = hyper_para["samples_num"]*2 if data_augment else hyper_para["samples_num"]
+    samples_num = hyper_para["samples_num"]*2 if data_augment else hyper_para["samples_num"]
 batch_size_train = hyper_para["batch_size_train"]
 batch_size_valid = batch_size_test = hyper_para["batch_size_test"]
 lr = hyper_para["lr"]
@@ -129,7 +128,8 @@ os.makedirs(output_root, exist_ok=True)
 # backup source code
 output_src_path = f"{output_root}/src/"
 os.makedirs(output_src_path, exist_ok=True)
-os.system(f"cp *.py {output_src_path}/")
+if not args.re_run:
+    os.system(f"cp *.py {output_src_path}/")
 
 # save best epoch's model parameters for each fold
 output_models_path = f"{output_root}/models/"
@@ -153,7 +153,8 @@ os.makedirs(output_pred_target_path, exist_ok=True)
 
 
 # log initial information
-log = open(f"{output_root}/{run_id}.log", 'w', buffering=1)
+log_filename = f"{output_root}/{run_id}.log" if not args.re_run else f"{output_root}/{run_id}_re_run.log"
+log = open(log_filename, 'w', buffering=1)
 Write_log(log, ' '.join(sys.argv))
 Write_log(log, f"{hyper_para}\n")
 
