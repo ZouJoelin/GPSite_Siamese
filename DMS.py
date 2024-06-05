@@ -79,7 +79,9 @@ def draw_dms_matrix(chains_matrix):
             x=dms_matrix.index,
             y=dms_matrix.columns,
             aspect="auto",  # 保持正方形
-            color_continuous_scale='RdBu'
+            color_continuous_scale='RdBu',
+            zmin=-1.5,
+            zmax=1.5,
         )
 
         # 设置每个数据点为正方形
