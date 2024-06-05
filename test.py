@@ -85,7 +85,7 @@ output_pred_target_path = f"{output_path}/pred_target/"
 os.makedirs(output_pred_target_path, exist_ok=True)
 
 # log initial information
-log = open(f"{output_path}/predict.log", 'w', buffering=1)
+log = open(f"{output_path}/test.log", 'w', buffering=1)
 Write_log(log, ' '.join(sys.argv))
 Write_log(log, f"{hyper_para}\n")
 Write_log(log, f"\n==================== External Test @{get_current_time()} ====================")
@@ -102,6 +102,7 @@ Write_log(log, f"Using device: {device}")
 # get models
 model_list = []
 models_filepath_list = glob.glob(f"{model_path}/model_fold*.ckpt")
+models_filepath_list.sort()
 for model_filepath in models_filepath_list:
     model = get_model().to(device)
     checkpoint = torch.load(model_filepath, device)
@@ -116,7 +117,7 @@ dataset = get_data(dataset_path)
 
 
 # predict
-test_pred_y = {"name": [], "pred": [], "y": []}
+test_pred_y = {"name": [], "pred": [], "target": []}
 test_metrics = {"MSE": [], "MAE": [], "STD": [], "SCC": [], "PCC": []}
 
 if not mean_on_models:
@@ -152,14 +153,14 @@ if not mean_on_models:
             y_list = torch.hstack(y_list).tolist()
             # collect total test_pred_y pairs
             with open(f"{output_pred_target_path}/test_pred_target_fold_{fold}.pkl", "wb") as pred_y_file:
-                pred_target = {"name": name_list, "pred": [torch.tensor(pred_list)], "target": [torch.tensor(y_list)]}
+                pred_target = {"name": name_list, "pred": pred_list, "target": y_list}
                 pickle.dump(pred_target, pred_y_file)
 
             test_pred_y["name"].append(name_list)
-            test_pred_y["pred"].append(torch.tensor(pred_list))
-            test_pred_y["y"].append(torch.tensor(y_list))
+            test_pred_y["pred"].append(pred_list)
+            test_pred_y["target"].append(y_list)
 
-            assert (len(test_pred_y["pred"]) == len(test_pred_y["y"]))
+            assert (len(test_pred_y["pred"]) == len(test_pred_y["target"]))
             test_mse, test_mae, test_std, test_scc, test_pcc = Metric(pred_list, y_list)
     
         test_metrics["MSE"].append(test_mse.item())
@@ -174,8 +175,8 @@ if not mean_on_models:
     Write_log(log, f"\n\n==================== Finish {folds_num}-Fold  @{get_current_time()} ==================== ")
 
     # evaluate on all test_pred_y pairs
-    all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc = Metric(torch.hstack(test_pred_y["pred"]).tolist(), 
-                                                                                torch.hstack(test_pred_y["y"]).tolist())
+    all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc = Metric(torch.hstack([torch.tensor(l) for l in test_pred_y["pred"]]).tolist(), 
+                                                                                torch.hstack([torch.tensor(l) for l in test_pred_y["target"]]).tolist())
     Write_log(log, (f"Independent Test metrics on all test_pred_y: "
                     f"{metric2string(all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc, pre_fix='all_test')}"
                     ))
@@ -195,12 +196,12 @@ else:
 
             test_pred_y["name"] += name
             test_pred_y["pred"].append(pred)
-            test_pred_y["y"].append(y)
+            test_pred_y["target"].append(y)
         
         test_pred_y["pred"] = torch.hstack(test_pred_y["pred"]).tolist()
-        test_pred_y["y"] = torch.hstack(test_pred_y["y"]).tolist()
-        assert (len(test_pred_y["pred"]) == len(test_pred_y["y"]))
-        test_mse, test_mae, test_std, test_scc, test_pcc = Metric(test_pred_y["pred"], test_pred_y["y"])
+        test_pred_y["target"] = torch.hstack(test_pred_y["target"]).tolist()
+        assert (len(test_pred_y["pred"]) == len(test_pred_y["target"]))
+        test_mse, test_mae, test_std, test_scc, test_pcc = Metric(test_pred_y["pred"], test_pred_y["target"])
     test_metrics["MSE"].append(test_mse.item())
     test_metrics["MAE"].append(test_mae.item())
     test_metrics["STD"].append(test_std.item())

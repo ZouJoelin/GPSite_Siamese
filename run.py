@@ -173,8 +173,8 @@ Write_log(log, f"\n\n==================== Start {folds_num}-Fold  @{get_current_
 
 best_valid_metrics = {"MSE": [], "MAE": [], "STD": [], "SCC": [], "PCC": []}
 all_test_metrics = {"MSE": [], "MAE": [], "STD": [], "SCC": [], "PCC": []}
-valid_pred_y = {"name": [], "pred": [], "y": []}
-test_pred_y = {"name": [], "pred": [], "y": []}
+valid_pred_y = {"name": [], "pred": [], "target": []}
+test_pred_y = {"name": [], "pred": [], "target": []}
 
 index = list(range(len(dataset)))
 index_k_split = np.array_split(index, folds_num)
@@ -362,7 +362,7 @@ for fold in range(folds_num):
             best_valid_scc = valid_scc.item()
             best_valid_pcc = valid_pcc.item()
             best_valid_pred_y["pred"] = pred_list
-            best_valid_pred_y["y"] = y_list
+            best_valid_pred_y["target"] = y_list
             epochs_not_improving = 0
             improve_or_not = ""
         else:
@@ -409,7 +409,7 @@ for fold in range(folds_num):
     # collect total valid_pred_y pairs
     valid_pred_y["name"].append(best_valid_pred_y["name"])
     valid_pred_y["pred"].append(torch.tensor(best_valid_pred_y["pred"]))
-    valid_pred_y["y"].append(torch.tensor(best_valid_pred_y["y"]))
+    valid_pred_y["target"].append(torch.tensor(best_valid_pred_y["target"]))
 
     Write_log(log, (f"\nFold[{fold}] Best model on dataset_valid: "
                     f"{metric2string(best_valid_mse, best_valid_mae, best_valid_std, best_valid_scc, best_valid_pcc, pre_fix='best_valid')}"
@@ -442,7 +442,7 @@ for fold in range(folds_num):
         # collect total test_pred_y pairs
         test_pred_y["name"].append(name_list)
         test_pred_y["pred"].append(torch.tensor(pred_list))
-        test_pred_y["y"].append(torch.tensor(y_list))
+        test_pred_y["target"].append(torch.tensor(y_list))
 
         assert (len(pred_list) == len(y_list))
         test_mse, test_mae, test_std, test_scc, test_pcc = Metric(pred_list, y_list)
@@ -460,7 +460,7 @@ Write_log(log, f"\n\n==================== Finish {folds_num}-Fold  @{get_current
 
 # evaluate on all test_pred_y pairs
 all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc = Metric(torch.hstack(test_pred_y["pred"]).tolist(), 
-                                                                              torch.hstack(test_pred_y["y"]).tolist())
+                                                                              torch.hstack(test_pred_y["target"]).tolist())
 Write_log(log, (f"Independent Test metrics on all test_pred_y: "
                 f"{metric2string(all_test_mse, all_test_mae, all_test_std, all_test_scc, all_test_pcc, pre_fix='all_test')}"
                 ))
