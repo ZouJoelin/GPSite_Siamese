@@ -11,10 +11,9 @@ from transformers import T5Tokenizer, T5EncoderModel
 from Bio.PDB import PDBParser
 from utils import *
 
-
-data_feature_root = "./data/temp/"
 data_pdb_path = "./data/skempi_v2/pdb/"
-gpu = '3'
+data_feature_root = "./data/skempi_split_chains/"
+gpu = '1'
 
 
 # extract sequence and coordinate
@@ -201,7 +200,7 @@ for seq_filepath in tqdm(seq_filepath_list):
         
         start = 0
         for chain_id in seqs:
-            dssp_features[chain_id] = torch.tensor(np.array(dssp_matrix[start: start+len(seqs[chain_id])]))
+            dssp_features[chain_id] = torch.tensor(np.array(dssp_matrix[start: start+len(seqs[chain_id])]), dtype=torch.float32)
             start += len(seqs[chain_id])
         
         # print(pdb_name)

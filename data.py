@@ -1,9 +1,34 @@
 import numpy as np
 import pandas as pd
+import pickle as pkl
 
 import torch
 import torch.utils.data as data
 import torch_geometric
+
+
+class Complex(object):
+    def __init__(self, name: str, chains: list, seq, coord, node_feat):
+        """
+        Args:
+            name: str, name of the complex
+            chains: list, list of chain ids
+            seq: dict, {chain: str}
+            coord: dict, {chain: torch.tensor}
+            node_feat: dict, {chain: torch.tensor}
+        """
+        self.name = name
+        self.chains = chains
+        self.seq = seq
+        self.coord = coord
+        self.node_feat = node_feat
+        self.chain_id = {chain: torch.full((len(seq[chain]),), i) for i, chain in enumerate(chains)}
+
+    def _concat(self):
+        self.seq = "".join([self.seq[chain] for chain in self.chains])
+        self.coord = torch.cat([self.coord[chain] for chain in self.chains])
+        self.node_feat = torch.cat([self.node_feat[chain] for chain in self.chains])
+        self.chain_id = torch.cat([self.chain_id[chain] for chain in self.chains])
 
 
 class SiameseProteinGraphDataset(data.Dataset):
@@ -36,12 +61,45 @@ class SiameseProteinGraphDataset(data.Dataset):
         y = entry['target']  # numpy.float64
         # print(f"wt_name: {wt_name}; mut_name: {mut_name}")
         
-        wt_graph = self.featurize_graph(wt_name)
-        mut_graph = self.featurize_graph(mut_name)
+        wt_complex = self.get_complex(wt_name)
+        mut_complex = self.get_complex(mut_name)
+
+        wt_complex._concat()
+        mut_complex._concat()
+
+        wt_graph = self.build_graph(wt_complex)
+        mut_graph = self.build_graph(mut_complex)
+
+        # wt_graph = self.featurize_graph(wt_name)
+        # mut_graph = self.featurize_graph(mut_name)
+
         y = torch.tensor(y, dtype=torch.float32)
-
         return mut_name, wt_graph, mut_graph, y
+    
+    def get_complex(self, name):
+        with open(f"{self.feature_path}/seq/{name}.pkl", 'rb') as seq_file:
+            seq = pkl.load(seq_file)
+        chains = list(seq.keys())
+        coord = torch.load(f"{self.feature_path}/coord/{name}.pt")
+        ProtTrans_feature = torch.load(f"{self.feature_path}/ProtTrans/{name}.pt")
+        DSSP_feature = torch.load(f"{self.feature_path}/DSSP/{name}.pt")
+        pre_computed_node_feature = {chain: torch.cat([ProtTrans_feature[chain], DSSP_feature[chain]], dim=-1).to(torch.float32) for chain in chains}
 
+        complex = Complex(name, chains, seq, coord, pre_computed_node_feature)
+        return complex
+
+    def build_graph(self, complex):
+        with torch.no_grad():
+            X_ca = complex.coord[:, 1]
+            # radius_graph -> knn_graph: less memory requirement
+            if self.graph_mode == "radius":
+                edge_index = torch_geometric.nn.radius_graph(X_ca, r=self.radius, loop=True, max_num_neighbors=1000, num_workers=4)
+            elif self.graph_mode == "knn":
+                edge_index = torch_geometric.nn.knn_graph(X_ca, k=self.top_k)
+            # edge_index.shape: [2, edges_num]
+        graph_data = torch_geometric.data.Data(name=complex.name, seq=complex.seq, coord=complex.coord, node_feat=complex.node_feat, edge_index=edge_index)
+        return graph_data
+    
     def featurize_graph(self, name):
         with torch.no_grad():
             with open(f"{self.feature_path}/seq/{name}.txt") as seq_file:
@@ -91,28 +149,39 @@ class SiameseProteinGraphDataset_prediction(data.Dataset):
         #     mut_name = mut_name.split('_')[0]
         # print(f"wt_name: {wt_name}; mut_name: {mut_name}")
         
-        wt_graph = self.featurize_graph(wt_name)
-        mut_graph = self.featurize_graph(mut_name)
+        wt_complex = self.get_complex(wt_name)
+        mut_complex = self.get_complex(mut_name)
+
+        wt_complex._concat()
+        mut_complex._concat()
+
+        wt_graph = self.build_graph(wt_complex)
+        mut_graph = self.build_graph(mut_complex)
 
         return mut_name, wt_graph, mut_graph
 
-    def featurize_graph(self, name):
-        with torch.no_grad():
-            with open(f"{self.feature_path}/seq/{name}.txt") as seq_file:
-                seq = seq_file.readline()
-            coord = torch.load(f"{self.feature_path}/coord/{name}.pt")
-            ProtTrans_feature = torch.load(f"{self.feature_path}/ProtTrans/{name}.pt")
-            DSSP_feature = torch.load(f"{self.feature_path}/DSSP/{name}.pt")
+    def get_complex(self, name):
+        with open(f"{self.feature_path}/seq/{name}.pkl", 'rb') as seq_file:
+            seq = pkl.load(seq_file)
+        chains = list(seq.keys())
+        coord = torch.load(f"{self.feature_path}/coord/{name}.pt")
+        ProtTrans_feature = torch.load(f"{self.feature_path}/ProtTrans/{name}.pt")
+        DSSP_feature = torch.load(f"{self.feature_path}/DSSP/{name}.pt")
+        pre_computed_node_feature = {chain: torch.cat([ProtTrans_feature[chain], DSSP_feature[chain]], dim=-1).to(torch.float32) for chain in chains}
 
-            pre_computed_node_feature = torch.cat([ProtTrans_feature, DSSP_feature], dim=-1)
-            X_ca = coord[:, 1]
+        complex = Complex(name, chains, seq, coord, pre_computed_node_feature)
+        return complex
+
+    def build_graph(self, complex):
+        with torch.no_grad():
+            X_ca = complex.coord[:, 1]
             # radius_graph -> knn_graph: less memory requirement
             if self.graph_mode == "radius":
                 edge_index = torch_geometric.nn.radius_graph(X_ca, r=self.radius, loop=True, max_num_neighbors=1000, num_workers=4)
             elif self.graph_mode == "knn":
-                edge_index = torch_geometric.nn.knn_graph(X_ca, k=self.top_k)  
+                edge_index = torch_geometric.nn.knn_graph(X_ca, k=self.top_k)
             # edge_index.shape: [2, edges_num]
-        graph_data = torch_geometric.data.Data(name=name, seq=seq, coord=coord, node_feat=pre_computed_node_feature, edge_index=edge_index)
+        graph_data = torch_geometric.data.Data(name=complex.name, seq=complex.seq, coord=complex.coord, node_feat=complex.node_feat, edge_index=edge_index)
         return graph_data
 
 

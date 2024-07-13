@@ -176,7 +176,7 @@ class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predicto
         # output = scatter_mean(d_embedding, wt_graph.batch, dim=0)
         output = scatter_sum(d_embedding, wt_graph.batch, dim=0)  # sum is more reasonable
 
-        return output.squeeze()
+        return output.squeeze(-1)
 
 
 
@@ -371,9 +371,6 @@ def _edge_feat_direction_orientation(X, edge_index, local_coord):
     edge_orientation = _quaternions(r) # [E, 4]
 
     return edge_direction, edge_orientation  # [E, 2 * 5 * 3], [E, 4]
-
-
-
 
 
 

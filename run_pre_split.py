@@ -311,6 +311,7 @@ for fold in range(folds_num):
                 memory_used_upmost = get_GPUs_used_memory()[gpu_id]
 
             pred = model(wt_graph, mut_graph)
+            assert pred.shape == y.shape
             loss = loss_fn(pred, y)
 
             train_loss_history.append(loss.item())
