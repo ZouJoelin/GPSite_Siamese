@@ -5,25 +5,6 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 
-def get_geo_feat(X, edge_index):
-    # X: [L, 5, 3] edge_index: [2, 3235]
-
-    local_coord = _local_coord(X)  # [L, 3, 3]
-
-    node_angles = _node_feat_angle(X)  # [L, 12]
-    node_dist = _node_feat_distance(X)  # [L, 10 * 16]
-    node_direction = _node_feat_direction(X, local_coord)  # [L, 4 * 3]
-
-    edge_pos = _positional_embeddings(edge_index)  # [E, 16]
-    edge_dist = _edge_feat_distance(X, edge_index)  # [E, 25 * 16]
-    edge_direction, edge_orientation = _edge_feat_direction_orientation(X, edge_index, local_coord)  # [E, 2 * 5 * 3], [E, 4]
-    
-    geo_node_feat = torch.cat([node_angles, node_dist, node_direction], dim=-1)
-    geo_edge_feat = torch.cat([edge_pos, edge_orientation, edge_dist, edge_direction], dim=-1)
-
-    return geo_node_feat, geo_edge_feat
-
-
 def _rbf(D, D_min=0., D_max=20., D_count=16):
     '''
     Returns an RBF embedding of `torch.Tensor` `D` along a new axis=-1.

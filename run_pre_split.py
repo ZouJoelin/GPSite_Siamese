@@ -210,7 +210,7 @@ for fold in range(folds_num):
         dataset_train_flip["target"] = -dataset_train_flip["target"]
         dataset_train = pd.concat([dataset_train, dataset_train_flip], ignore_index=True)
 
-    dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k)
+    dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k, training=True)
     if args.debug:
         sampler_train = RandomSampler(dataset_train, replacement=True, num_samples=samples_num)
         dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, sampler=sampler_train, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
