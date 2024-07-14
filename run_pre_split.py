@@ -38,6 +38,12 @@ pretrain_model_mask.add_argument("--pretrained_model_path", type=str, default=No
 
 parser.add_argument("--data_augment", action='store_true', default=False,
                     help="train data augment by flip wt and mut.")
+parser.add_argument("--cut_interface", action='store_true', default=True,
+                    help="cut interface.")
+parser.add_argument("--cut_mutation", action='store_true', default=True,
+                    help="cut_mutation_surrounding.")
+parser.add_argument("--contact_threshold", type=int, default=10,
+                    help="contact range.")
 
 parser.add_argument("--run_id", type=str, required=True, default=None)
 parser.add_argument("--debug", action='store_true', default=False)
@@ -61,6 +67,9 @@ output_path = args.output_path
 checkpoint_model_path = args.checkpoint_model_path
 pretrained_model_path = args.pretrained_model_path
 data_augment = args.data_augment
+cut_interface = args.cut_interface
+cut_mutation = args.cut_mutation
+contact_threshold = args.contact_threshold
 run_id = args.run_id
 gpu_id = args.gpu_id
 re_run = args.re_run
@@ -77,12 +86,12 @@ hyper_para = {
     'batch_size_test': 4,
     'lr': 1e-4,
     'beta12': (0.9, 0.999),
-    'folds_num': 5,
+    'folds_num': 10,
     'epochs_num': 250,
     'graph_size_limit': 400000,
     'graph_mode': "knn",
     'top_k': 30,
-    'patience': 75,
+    'patience': 200,
 }
 
 hyper_para_debug = {
@@ -210,7 +219,8 @@ for fold in range(folds_num):
         dataset_train_flip["target"] = -dataset_train_flip["target"]
         dataset_train = pd.concat([dataset_train, dataset_train_flip], ignore_index=True)
 
-    dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k, training=True)
+    dataset_train = SiameseProteinGraphDataset(dataset_train, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k, 
+                                               cut_interface=cut_interface, cut_mutation=cut_mutation, contact_threshold=contact_threshold, training=True)
     if args.debug:
         sampler_train = RandomSampler(dataset_train, replacement=True, num_samples=samples_num)
         dataloader_train = DataLoader(dataset_train, batch_size=batch_size_train, sampler=sampler_train, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
@@ -220,7 +230,8 @@ for fold in range(folds_num):
 
     # select out dataset_valid
     dataset_valid = dataset[dataset["split"].isin(index_valid)].reset_index(drop=True)
-    dataset_valid = SiameseProteinGraphDataset(dataset_valid, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k)
+    dataset_valid = SiameseProteinGraphDataset(dataset_valid, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k, 
+                                               cut_interface=cut_interface, cut_mutation=cut_mutation, contact_threshold=contact_threshold)
     if args.debug:
         sampler_valid = RandomSampler(dataset_valid, replacement=True, num_samples=samples_num)
         dataloader_valid = DataLoader(dataset_valid, batch_size=batch_size_valid, sampler=sampler_valid, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
@@ -230,7 +241,8 @@ for fold in range(folds_num):
 
     # select out dataset_test
     dataset_test = dataset[dataset["split"].isin(index_test)].reset_index(drop=True)
-    dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k)
+    dataset_test = SiameseProteinGraphDataset(dataset_test, feature_path=feature_path, graph_mode=graph_mode, top_k=top_k, 
+                                              cut_interface=cut_interface, cut_mutation=cut_mutation, contact_threshold=contact_threshold)
     if args.debug:
         sampler_test = RandomSampler(dataset_test, replacement=True, num_samples=samples_num)
         dataloader_test = DataLoader(dataset_test, batch_size=batch_size_test, sampler=sampler_test, shuffle=False, drop_last=True, num_workers=num_workers, prefetch_factor=2, pin_memory=pin_memory)
