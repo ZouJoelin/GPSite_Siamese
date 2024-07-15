@@ -28,6 +28,7 @@ pdb_filepath_list = glob.glob(data_pdb_path + "*.pdb")
 for pdb_filepath in tqdm(pdb_filepath_list):
     pdb_name = os.path.basename(pdb_filepath).split(".")[0]
     seqs = {}
+    seq_indexs = {}
     coords = {}
     parser = PDBParser(QUIET=True)
     structure = parser.get_structure(pdb_name, pdb_filepath)
@@ -36,10 +37,12 @@ for pdb_filepath in tqdm(pdb_filepath_list):
         res_list = get_clean_res_list(chain.get_residues(), verbose=False, ensure_ca_exist=True)
         # ensure all res contains N, CA, C and O
         res_list = [res for res in res_list if (('N' in res) and ('CA' in res) and ('C' in res) and ('O' in res))]
+        seq_index = [res.id[1] for res in res_list]
 
         # extract seq
         seq = "".join([three_to_one.get(res.resname) for res in res_list])
         seqs[chain_id] = seq
+        seq_indexs[chain_id] = seq_index
 
         # extract coord
         coord = []
@@ -69,7 +72,8 @@ for pdb_filepath in tqdm(pdb_filepath_list):
     # save to file
     seq_to_file = data_seq_path + pdb_name + ".pkl"
     with open(seq_to_file, "wb") as f:
-        pkl.dump(seqs, f)
+        pkl.dump((seqs, seq_indexs), f)
+
     coord_to_file = data_coord_path + pdb_name + ".pt"
     torch.save(coords, coord_to_file)
     

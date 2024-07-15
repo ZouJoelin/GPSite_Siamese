@@ -9,11 +9,11 @@ import torch_geometric
 from sklearn.metrics import pairwise_distances
 from Bio.PDB import PDBParser
 
-from geo import _local_coord, _node_feat_angle, _node_feat_distance, _node_feat_direction
+from geo import _node_feat_angle
 
 
 class Complex(object):
-    def __init__(self, name: str, chains, seq, coord, node_feat,
+    def __init__(self, name: str, chains, seq, seq_index, coord, node_feat,
                  jitter=None):
         """
         Attributes:
@@ -21,51 +21,52 @@ class Complex(object):
             chains: dict, {chain: int}
             chain_id: dict, {chain: torch.tensor}
             seq: dict, {chain: str}
+            seq_index: dict, {chain: list}
             coord: dict, {chain: torch.tensor}
             node_feat: dict, {chain: torch.tensor}
-            local_coord: dict, {chain: torch.tensor}
-            geo_node_feat: dict, {chain: torch.tensor}
+            node_angle: dict, {chain: torch.tensor}
             """
         self.name = name
         self.chains = chains
         self.seq = seq
+        self.seq_index = seq_index
         self.coord = coord
         self.node_feat = node_feat
         self.chain_id = {chain: torch.full((len(seq[chain]),), i) for chain, i in chains.items()}
-        self.local_coord = None
-        self.geo_node_feat = None
+        # self.local_coord = None
+        self.node_angle = None
 
         if jitter:
             self._jitter(jitter)
-        self.local_coord, self.geo_node_feat = self._get_geo_node_feat()
+        self.node_angle = self._get_geo_node_angle()
         self._concat()
 
     def _jitter(self, jitter=0.1):
         # _jitter must before _concat and _get_geo_node_feat
-        assert isinstance(self.coord, dict) and self.geo_node_feat == None
+        assert isinstance(self.coord, dict) and self.node_angle == None
 
         for chain in self.chains:
             self.coord[chain] = self.coord[chain] + jitter * torch.rand_like(self.coord[chain])
             self.node_feat[chain] = self.node_feat[chain] + jitter * torch.randn_like(self.node_feat[chain])
 
-    def _get_geo_node_feat(self):
-        # _get_geo_node_feat must before _concat
+    def _get_geo_node_angle(self):
+        # _get_geo_node_angle must before _concat
         assert isinstance(self.coord, dict)
 
-        local_coords = {}
-        geo_node_feats = {}
+        # local_coords = {}
+        node_angles = {}
         for chain in self.chains:
             X = self.coord[chain]
-            local_coord = _local_coord(X)  # [L, 3, 3]
-            node_angles = _node_feat_angle(X)  # [L, 12]
-            node_dist = _node_feat_distance(X)  # [L, 10 * 16]
-            node_direction = _node_feat_direction(X, local_coord)  # [L, 4 * 3]
-            geo_node_feat = torch.cat([node_angles, node_dist, node_direction], dim=-1)
+            # local_coord = _local_coord(X)  # [L, 3, 3]
+            node_angle = _node_feat_angle(X)  # [L, 12]
+            # node_dist = _node_feat_distance(X)  # [L, 10 * 16]
+            # node_direction = _node_feat_direction(X, local_coord)  # [L, 4 * 3]
+            # geo_node_feat = torch.cat([node_angles, node_dist, node_direction], dim=-1)
 
-            local_coords[chain] = local_coord
-            geo_node_feats[chain] = geo_node_feat
+            # local_coords[chain] = local_coord
+            node_angles[chain] = node_angle
 
-        return local_coords, geo_node_feats
+        return node_angles
 
     def _concat(self):
         """
@@ -73,16 +74,15 @@ class Complex(object):
         coord: dict -> torch.tensor
         norde_feat: dict -> torch.tensor
         chain_id: dict -> torch.tensor
-        local_coord: dict -> torch.tensor
-        geo_node_feat: dict -> torch.tensor
+        node_angle: dict -> torch.tensor
         """
         self.seq = "".join([self.seq[chain] for chain in self.chains])
         self.coord = torch.cat([self.coord[chain] for chain in self.chains])
         self.node_feat = torch.cat([self.node_feat[chain] for chain in self.chains])
         self.chain_id = torch.cat([self.chain_id[chain] for chain in self.chains])
 
-        self.local_coord = torch.cat([self.local_coord[chain] for chain in self.chains])
-        self.geo_node_feat = torch.cat([self.geo_node_feat[chain] for chain in self.chains])
+        # self.local_coord = torch.cat([self.local_coord[chain] for chain in self.chains])
+        self.node_angle = torch.cat([self.node_angle[chain] for chain in self.chains])
 
     def _mask_select(self, mask):
         # _mask_select must after _concat
@@ -93,9 +93,9 @@ class Complex(object):
         self.seq = ''.join([res for res, m in zip(self.seq, mask) if m])
         self.chain_id = self.chain_id[mask]
         self.coord = self.coord[mask]
-        self.local_coord = self.local_coord[mask]
+        # self.local_coord = self.local_coord[mask]
         self.node_feat =self.node_feat[mask]
-        self.geo_node_feat = self.geo_node_feat[mask]
+        self.node_angle = self.node_angle[mask]
 
 
 class SiameseProteinGraphDataset(data.Dataset):
@@ -163,7 +163,7 @@ class SiameseProteinGraphDataset(data.Dataset):
                     mutation_sites[chain] = []
                 for mut in mut_name.split('_')[-1].split(','):
                     chain = mut[1]
-                    site = self._get_relative_site(pdb_name=mut_name, chain=chain, acutual_site=int(mut[2:-1]))
+                    site = self._get_relative_site(chain_slice=mut_complex.seq_index[chain], acutual_site=int(mut[2:-1]))
                     mutation_sites[chain].append(site)
                 # {'A': [0, 1], 'B': [190, 191]}
 
@@ -204,14 +204,14 @@ class SiameseProteinGraphDataset(data.Dataset):
     
     def get_complex(self, name, jitter):
         with open(f"{self.feature_path}/seq/{name}.pkl", 'rb') as seq_file:
-            seq = pkl.load(seq_file)
+            seq, seq_inedx = pkl.load(seq_file)
         chains = {chain: i for i, chain in enumerate(seq.keys())}
         coord = torch.load(f"{self.feature_path}/coord/{name}.pt")
         ProtTrans_feature = torch.load(f"{self.feature_path}/ProtTrans/{name}.pt")
         DSSP_feature = torch.load(f"{self.feature_path}/DSSP/{name}.pt")
         pre_computed_node_feature = {chain: torch.cat([ProtTrans_feature[chain], DSSP_feature[chain]], dim=-1).to(torch.float32) for chain in chains}
 
-        complex = Complex(name, chains, seq, coord, pre_computed_node_feature, jitter)
+        complex = Complex(name, chains, seq, seq_inedx, coord, pre_computed_node_feature, jitter)
         return complex
 
     def build_graph(self, complex: Complex):
@@ -224,20 +224,14 @@ class SiameseProteinGraphDataset(data.Dataset):
                 edge_index = torch_geometric.nn.knn_graph(X_ca, k=self.top_k)
             # edge_index.shape: [2, edges_num]
         
-        node_feat = torch.cat([complex.node_feat, complex.geo_node_feat], dim=-1)
-        graph_data = torch_geometric.data.Data(name=complex.name, seq=complex.seq, coord=complex.coord, local_coord=complex.local_coord,
-                                               node_feat=node_feat, edge_index=edge_index)
+        # node_feat = torch.cat([complex.node_feat, complex.geo_node_feat], dim=-1)
+        graph_data = torch_geometric.data.Data(name=complex.name, seq=complex.seq, coord=complex.coord,
+                                               node_feat=complex.node_feat, node_angle=complex.node_angle, edge_index=edge_index)
         return graph_data
     
-    def _get_relative_site(self, pdb_name: str, chain: str, acutual_site: int):
-        pdb_filepath = f"{self.feature_path}/pdb/{pdb_name}.pdb"
-        parser = PDBParser(QUIET=True)
-        structure = parser.get_structure(pdb_name, pdb_filepath)
-        model = structure[0]
-        chain = model[chain]
-        slice = [res.id[1] for res in chain.get_residues()]
+    def _get_relative_site(self, chain_slice: list, acutual_site: int):
+        relative_site = chain_slice.index(acutual_site)
 
-        relative_site = slice.index(acutual_site)
         return relative_site
 
     def featurize_graph(self, name):

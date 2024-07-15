@@ -5,7 +5,7 @@ from torch_scatter import scatter_mean, scatter_sum
 from torch_geometric.nn import TransformerConv
 from torch_geometric.utils import unbatch
 from data import *
-from geo import _positional_embeddings, _edge_feat_distance, _edge_feat_direction_orientation
+from geo import _local_coord, _node_feat_distance, _node_feat_direction, _positional_embeddings, _edge_feat_distance, _edge_feat_direction_orientation
 
 
 class EdgeMLP(nn.Module):
@@ -138,7 +138,14 @@ class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predicto
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward_once(self, local_coord, coord, h_V, edge_index, batch_id):
+    def forward_once(self, coord, h_V, node_angle, edge_index, batch_id):
+
+        local_coord = _local_coord(coord)  # [L, 3, 3]
+        
+        node_distance = _node_feat_distance(coord)  # [L, 10 * 16]
+        node_direction = _node_feat_direction(coord, local_coord)  # [L, 4 * 3]
+        h_V = torch.cat([h_V, node_angle, node_distance, node_direction], dim=-1)
+
         h_E = _get_geo_edge_feat(local_coord, coord, edge_index)
 
         h_V = self.Graph_encoder(h_V, edge_index, h_E, batch_id) # [num_residue, hidden_dim]
@@ -146,8 +153,8 @@ class SiameseGPSite(nn.Module): # Geometry-aware Protein Sequence-based predicto
         return h_V
     
     def forward(self, wt_graph: torch_geometric.data.Data, mut_graph: torch_geometric.data.Data):
-        wt_embedding = self.forward_once(wt_graph.local_coord, wt_graph.coord, wt_graph.node_feat, wt_graph.edge_index, wt_graph.batch)
-        mut_embedding = self.forward_once(mut_graph.local_coord, mut_graph.coord, mut_graph.node_feat, mut_graph.edge_index, mut_graph.batch)
+        wt_embedding = self.forward_once(wt_graph.coord, wt_graph.node_feat, wt_graph.node_angle, wt_graph.edge_index, wt_graph.batch)
+        mut_embedding = self.forward_once(mut_graph.coord, mut_graph.node_feat, wt_graph.node_angle, mut_graph.edge_index, mut_graph.batch)
         # both of shape: [num_residue, hidden_dim]
         # wt_embedding = self.norm_1(wt_embedding)
         # mut_embedding = self.norm_1(mut_embedding)
